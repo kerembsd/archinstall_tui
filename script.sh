@@ -93,6 +93,9 @@ T() { [[ "$LANG_CHOICE" == "tr" ]] && echo "$1" || echo "$2"; }
 # dialog kısayolları
 DTITLE="ArchInstall v${SCRIPT_VERSION}"
 
+
+_TMP=$(mktemp)
+
 d_msg() {
     dialog --colors --backtitle "$DTITLE" \
         --title "$DTITLE" --msgbox "$1" "${2:-12}" "${3:-65}"
@@ -107,22 +110,24 @@ d_yesno() {
         --title "$DTITLE" --yesno "$1" "${2:-10}" "${3:-60}"
 }
 d_menu() {
-    # $1=title $2=text $3=h $4=w $5=listh, sonrası tag/item çiftleri
     local title="$1" text="$2" h="$3" w="$4" lh="$5"
     shift 5
     dialog --colors --backtitle "$DTITLE" \
         --title "$title" --menu "$text" "$h" "$w" "$lh" "$@" \
-        3>&1 1>&2 2>&3
+        2>"$_TMP"
+    cat "$_TMP"
 }
 d_input() {
     dialog --colors --backtitle "$DTITLE" \
         --title "$1" --inputbox "$2" "${3:-10}" "${4:-55}" "" \
-        3>&1 1>&2 2>&3
+        2>"$_TMP"
+    cat "$_TMP"
 }
 d_pass() {
     dialog --colors --backtitle "$DTITLE" \
         --title "$1" --passwordbox "$2" "${3:-9}" "${4:-55}" \
-        3>&1 1>&2 2>&3
+        2>"$_TMP"
+    cat "$_TMP"
 }
 
 # Hata yakalayıcı
@@ -147,10 +152,11 @@ trap 'on_error $LINENO' ERR
 # =============================================================================
 LANG_CHOICE=$(d_menu \
     "ArchInstall — Language / Dil" \
-    "Lütfen dil seçin / Please select language:" \
+    "Lutfen dil secin / Please select language:" \
     12 50 2 \
     "tr" "Turkce" \
-    "en" "English") || exit 0
+    "en" "English")
+[[ -z "$LANG_CHOICE" ]] && exit 0
 
 # =============================================================================
 # 1. SPLASH EKRANI
@@ -260,7 +266,8 @@ DISK_NAME=$(d_menu \
     "$(T "!! SECILEN DISKTEKI TUM VERI SILINECEK !!" \
         "!! ALL DATA ON SELECTED DISK WILL BE ERASED !!")" \
     18 72 8 \
-    "${DISK_LIST[@]}") || exit 0
+    "${DISK_LIST[@]}")
+[[ -z "$DISK_NAME" ]] && exit 0
 
 DISK="/dev/$DISK_NAME"
 log "$(T "Secilen disk: $DISK" "Selected disk: $DISK")"
@@ -275,7 +282,8 @@ while true; do
         "$(T "Kullanici Adi" "Username")" \
         "$(T "Kullanici adinizi girin:\n(kucuk harf, rakam, _ veya - kullanin)" \
             "Enter your username:\n(use lowercase, numbers, _ or -)")" \
-        10 55) || exit 0
+        10 55)
+: # cancel handled by empty check
     [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]*$ ]] && break
     d_msg "$(T "Gecersiz kullanici adi!\nKucuk harf, rakam, _ veya - kullanin." \
               "Invalid username!\nUse lowercase, numbers, _ or -.")" 9 55
@@ -287,7 +295,8 @@ while true; do
         "$(T "Bilgisayar Adi" "Hostname")" \
         "$(T "Bilgisayar adini (hostname) girin:" \
             "Enter the computer hostname:")" \
-        9 55) || exit 0
+        9 55)
+: # cancel handled by empty check
     [[ "$HOST_NAME" =~ ^[a-zA-Z0-9-]+$ ]] && break
     d_msg "$(T "Gecersiz hostname!\nHarf, rakam ve - kullanin." \
               "Invalid hostname!\nUse letters, numbers and -.")" 9 50
@@ -318,12 +327,14 @@ while true; do
         "$(T "LUKS Sifresi" "LUKS Passphrase")" \
         "$(T "Disk sifreleme parolasini girin:\n(Bu parola olmadan sisteme giremezsiniz!)" \
             "Enter disk encryption passphrase:\n(You cannot access the system without this!)")" \
-        10 65) || exit 0
+        10 65)
+: # cancel handled by empty check
 
     LUKS_PASS2=$(d_pass \
         "$(T "LUKS Sifresi - Dogrula" "LUKS Passphrase - Confirm")" \
         "$(T "Parolayi tekrar girin:" "Re-enter passphrase:")" \
-        9 55) || exit 0
+        9 55)
+: # cancel handled by empty check
 
     [[ "$LUKS_PASS" != "$LUKS_PASS2" ]] && {
         d_msg "$(T "Parolalar eslesmiyor!" "Passphrases do not match!")" 7 45
@@ -376,7 +387,8 @@ GPU_CHOICE=$(d_menu \
     "4" "$(T "NVIDIA - Open (Turing+/RTX serisi)"    "NVIDIA - Open (Turing+/RTX only)")" \
     "5" "$(T "Intel + NVIDIA Optimus - Proprietary"  "Intel + NVIDIA Optimus - Proprietary")" \
     "6" "$(T "Intel + NVIDIA Optimus - Open (RTX)"   "Intel + NVIDIA Optimus - Open (RTX)")" \
-    "7" "$(T "Sanal Makine (VirtualBox/VMware/QEMU)" "Virtual Machine (VirtualBox/VMware/QEMU)")") || exit 0
+    "7" "$(T "Sanal Makine (VirtualBox/VMware/QEMU)" "Virtual Machine (VirtualBox/VMware/QEMU)")")
+: # cancel handled by empty check
 log "GPU: $GPU_CHOICE"
 
 # Timezone bölge
@@ -391,7 +403,8 @@ TZ_REGION=$(d_menu \
     "Pacific"  "Pacific / Pasifik" \
     "Atlantic" "Atlantic / Atlantik" \
     "Indian"   "Indian Ocean / Hint Okyanusu" \
-    "Arctic"   "Arctic / Arktik") || exit 0
+    "Arctic"   "Arctic / Arktik")
+: # cancel handled by empty check
 
 # Timezone şehir
 TZ_CITIES=()
@@ -403,7 +416,8 @@ TIMEZONE_CITY=$(d_menu \
     "$(T "Zaman Dilimi - Sehir" "Timezone - City")" \
     "$(T "Sehir secin:" "Select city:")" \
     22 55 14 \
-    "${TZ_CITIES[@]}") || exit 0
+    "${TZ_CITIES[@]}")
+: # cancel handled by empty check
 
 TIMEZONE="${TZ_REGION}/${TIMEZONE_CITY}"
 log "Timezone: $TIMEZONE"
@@ -416,7 +430,8 @@ LOCALE=$(d_menu \
     "en_US" "English (US)" \
     "tr_TR" "Turkce" \
     "de_DE" "Deutsch" \
-    "fr_FR" "Francais") || exit 0
+    "fr_FR" "Francais")
+: # cancel handled by empty check
 log "Locale: ${LOCALE}.UTF-8"
 
 # ZRAM
@@ -427,7 +442,8 @@ ZRAM_SIZE=$(d_menu \
     "2048" "2 GB" \
     "4096" "$(T "4 GB (onerilen)" "4 GB (recommended)")" \
     "6144" "6 GB" \
-    "8192" "8 GB") || exit 0
+    "8192" "8 GB")
+: # cancel handled by empty check
 log "ZRAM: ${ZRAM_SIZE}MB"
 
 # =============================================================================
@@ -466,7 +482,7 @@ Onayliyor musun?" \
   ZRAM       : ${ZRAM_SIZE}MB
   CPU Ucode  : $CPU_UCODE
 
-Do you confirm?")" 26 68 || exit 0
+Do you confirm?")" 26 68
 
 # =============================================================================
 # 8. GPU PAKET LİSTESİ

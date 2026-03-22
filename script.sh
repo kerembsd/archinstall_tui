@@ -13,6 +13,32 @@
 set -euo pipefail
 
 # =============================================================================
+# WHIPTAIL TEMA — Slate/Mint (resimden esinlenildi)
+# =============================================================================
+export NEWT_COLORS='
+root=green,black
+window=green,black
+border=green,black
+title=green,black
+button=black,green
+actbutton=black,white
+compactbutton=green,black
+listbox=green,black
+actlistbox=black,green
+sellistbox=black,green
+actsellistbox=black,white
+entry=green,black
+disentry=white,black
+label=green,black
+checkbox=green,black
+actcheckbox=black,green
+emptyscale=black,black
+fullscale=green,black
+helpline=black,green
+roottext=green,black
+'
+
+# =============================================================================
 # SABITLER
 # =============================================================================
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
@@ -300,6 +326,19 @@ log "$(T "LUKS sifresi ayarlandi." "LUKS passphrase configured.")"
 # =============================================================================
 section "$(T "Sistem Ayarlari" "System Settings")"
 
+# Reflector sorusu
+USE_REFLECTOR="no"
+if whiptail --title "$(T "Mirror Optimizasyonu" "Mirror Optimization")" \
+    --yesno "$(T \
+        "Paket indirme hizini artirmak icin en yakin ve hizli\nmirrorlar otomatik secilsin mi?\n\n(Reflector ile ~30-60 sn surabilir)" \
+        "Automatically select the fastest nearby mirrors\nto speed up package downloads?\n\n(Takes ~30-60 sec with Reflector)")" \
+    11 60; then
+    USE_REFLECTOR="yes"
+    log "$(T "Reflector: aktif" "Reflector: enabled")"
+else
+    log "$(T "Reflector: atlandi" "Reflector: skipped")"
+fi
+
 GPU_CHOICE=$(whiptail --title "$(T "GPU Surucusu" "GPU Driver")" \
     --menu "$(T "GPU yapilandirmasini secin:" "Select GPU configuration:")" \
     20 72 7 \
@@ -361,34 +400,9 @@ ZRAM_SIZE=$(whiptail --title "$(T "ZRAM Boyutu" "ZRAM Size")" \
 log "ZRAM: ${ZRAM_SIZE}MB"
 
 # =============================================================================
-# 7. EK PAKETLER
+# 7. KURULUM OZETI & SON ONAY
 # =============================================================================
-section "$(T "Ek Paketler" "Extra Packages")"
-
-EXTRA_PKGS_RAW=$(whiptail --title "$(T "Ek Paketler" "Extra Packages")" \
-    --checklist "$(T \
-        "Kurmak istedigin ek paketleri sec (SPACE ile sec/kaldir):" \
-        "Select extra packages to install (SPACE to toggle):")" \
-    22 68 11 \
-    "firefox"          "$(T "Firefox tarayici"           "Firefox browser")"          OFF \
-    "thunar"           "$(T "Thunar dosya yoneticisi"    "Thunar file manager")"       OFF \
-    "neovim"           "$(T "Neovim metin editoru"       "Neovim text editor")"        OFF \
-    "htop"             "$(T "Htop sistem monitoru"       "Htop system monitor")"       ON  \
-    "brightnessctl"    "$(T "Ekran parlaklik kontrolu"   "Screen brightness control")" OFF \
-    "unzip"            "$(T "ZIP arsiv destegi"          "ZIP archive support")"       ON  \
-    "ttf-font-awesome" "$(T "Font Awesome ikonlar"       "Font Awesome icons")"        OFF \
-    "bat"              "$(T "Renkli cat alternatifi"     "Colorized cat alternative")" OFF \
-    "ranger"           "$(T "Terminal dosya yoneticisi"  "Terminal file manager")"     OFF \
-    "grim"             "$(T "Ekran goruntusu araci"      "Screenshot tool")"           OFF \
-    "fzf"              "$(T "Fuzzy finder arac"          "Fuzzy finder tool")"         OFF \
-    3>&1 1>&2 2>&3) || exit 0
-
-EXTRA_PKGS=$(echo "$EXTRA_PKGS_RAW" | tr -d '"')
-log "$(T "Ek paketler: ${EXTRA_PKGS:-yok}" "Extra packages: ${EXTRA_PKGS:-none}")"
-
-# =============================================================================
-# 8. KURULUM OZETI & SON ONAY
-# =============================================================================
+EXTRA_PKGS=""
 GPU_LABELS=([1]="Intel iGPU" [2]="AMD GPU" [3]="NVIDIA Proprietary"
             [4]="NVIDIA Open" [5]="Optimus Proprietary"
             [6]="Optimus Open" [7]="Sanal Makine / VM")
@@ -407,7 +421,6 @@ whiptail --title "$(T "!! KURULUM OZETI - SON ONAY !!" "!! INSTALLATION SUMMARY 
   Locale     : ${LOCALE}.UTF-8
   ZRAM       : ${ZRAM_SIZE}MB
   CPU Ucode  : $CPU_UCODE
-  Ek Paketler: ${EXTRA_PKGS:-yok}
 
 Onayliyor musun?" \
 "Installation will START with these settings:
@@ -422,7 +435,6 @@ Onayliyor musun?" \
   Locale     : ${LOCALE}.UTF-8
   ZRAM       : ${ZRAM_SIZE}MB
   CPU Ucode  : $CPU_UCODE
-  Extra Pkgs : ${EXTRA_PKGS:-none}
 
 Do you confirm?")" \
     26 68 || exit 0
@@ -493,15 +505,28 @@ mkfs.fat -F32 -n "EFI" "$EFI_PART" >> "$LOG_FILE" 2>&1
 mount "$EFI_PART" /mnt/boot
 
 echo "XXX"; echo "33"
-echo "$(T "[5/10] Mirror listesi optimize ediliyor..." "[5/10] Optimizing mirror list...")"; echo "XXX"
+echo "$(T "[5/10] Mirror listesi..." "[5/10] Mirror list...")"; echo "XXX"
 pacman -Sy --noconfirm archlinux-keyring >> "$LOG_FILE" 2>&1
-pacman -S  --noconfirm reflector         >> "$LOG_FILE" 2>&1
-reflector --country Turkey,Germany,Netherlands,France \
-    --protocol https --age 12 --sort rate --fastest 10 \
-    --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1
+if [[ "$USE_REFLECTOR" == "yes" ]]; then
+    pacman -S --noconfirm reflector >> "$LOG_FILE" 2>&1
+    reflector --country Turkey,Germany,Netherlands,France \
+        --protocol https --age 12 --sort rate --fastest 10 \
+        --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1
+    log "$(T "Mirrorlist guncellendi." "Mirrorlist updated.")"
+fi
 
 echo "XXX"; echo "42"
-echo "$(T "[6/10] Temel paketler kuruluyor (bu uzun surebilir)..." "[6/10] Installing base packages (may take a while)...")"; echo "XXX"
+echo "$(T "[6/10] Paket kurulumu hazirlanıyor..." "[6/10] Preparing package installation...")"; echo "XXX"
+sleep 1
+
+) | whiptail --title "$(T "Kurulum Ilerliyor" "Installation Progress")" \
+    --gauge "$(T "Lutfen bekleyin..." "Please wait...")" 8 72 0
+
+# ── Pacstrap: canlı log penceresi ────────────────────────────────────────────
+clear
+PACSTRAP_LOG="/tmp/pacstrap-$(date +%s).log"
+
+# Pacstrap arka planda çalışsın, tailbox canlı göstersin
 pacstrap /mnt \
     base base-devel linux linux-headers linux-firmware "$CPU_UCODE" \
     btrfs-progs nano nano-syntax-highlighting terminus-font \
@@ -519,9 +544,28 @@ pacstrap /mnt \
     feh picom dunst \
     ttf-dejavu ttf-liberation noto-fonts \
     man-db man-pages \
-    $GPU_PKGS \
-    $EXTRA_PKGS >> "$LOG_FILE" 2>&1
+    $GPU_PKGS > "$PACSTRAP_LOG" 2>&1 &
 
+PACSTRAP_PID=$!
+
+# tailbox ile canlı log göster (arka plan işi bitene kadar)
+while kill -0 "$PACSTRAP_PID" 2>/dev/null; do
+    whiptail --title "$(T "Paketler Kuruluyor..." "Installing Packages...")" \
+        --tailbox "$PACSTRAP_LOG" 28 80
+done
+
+# Pacstrap başarılı mı kontrol et
+wait "$PACSTRAP_PID" || {
+    wt_msg "$(T \
+        "Paket kurulumu basarisiz!\nLog: $PACSTRAP_LOG" \
+        "Package installation failed!\nLog: $PACSTRAP_LOG")" 9 55
+    exit 1
+}
+cat "$PACSTRAP_LOG" >> "$LOG_FILE"
+log "$(T "Paketler kuruldu." "Packages installed.")"
+
+# Gauge devam — kalan adımlar
+(
 echo "XXX"; echo "60"
 echo "$(T "[7/10] fstab olusturuluyor..." "[7/10] Generating fstab...")"; echo "XXX"
 genfstab -U /mnt >> /mnt/etc/fstab
@@ -890,7 +934,53 @@ arch-chroot /mnt /chroot.sh
 rm -f /mnt/chroot.sh /mnt/chroot_vars.sh
 
 # =============================================================================
-# 12. BiTiS
+# 12. EK PAKET KURULUMU
+# =============================================================================
+if whiptail --title "$(T "Ek Paket Kurulumu" "Extra Package Installation")" \
+    --yesno "$(T \
+        "Kurulum tamamlandi!\n\nEk paket kurmak ister misiniz?\n(Paket isimlerini kendiniz yazacaksiniz)" \
+        "Installation complete!\n\nWould you like to install extra packages?\n(You will type the package names yourself)")" \
+    11 60; then
+
+    while true; do
+        EXTRA_INPUT=$(whiptail --title "$(T "Ek Paketler" "Extra Packages")" \
+            --inputbox "$(T \
+                "Kurmak istediginiz paket isimlerini girin:\n(boslukla ayirin, ornek: firefox neovim htop)\n\nBos birakip ENTER ile atlayabilirsiniz." \
+                "Enter package names to install:\n(space-separated, e.g: firefox neovim htop)\n\nLeave empty and press ENTER to skip.")" \
+            12 65 3>&1 1>&2 2>&3) || break
+
+        [[ -z "$EXTRA_INPUT" ]] && break
+
+        # Onay
+        if whiptail --title "$(T "Onay" "Confirm")" \
+            --yesno "$(T \
+                "Asagidaki paketler kurulacak:\n\n  $EXTRA_INPUT\n\nDevam?" \
+                "The following packages will be installed:\n\n  $EXTRA_INPUT\n\nContinue?")" \
+            12 65; then
+            clear
+            echo -e "\n${CYAN}${BOLD}$(T "Paketler kuruluyor..." "Installing packages...")${NC}\n"
+            if arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT; then
+                wt_msg "$(T \
+                    "Paketler basariyla kuruldu:\n$EXTRA_INPUT" \
+                    "Packages installed successfully:\n$EXTRA_INPUT")" 10 60
+            else
+                wt_msg "$(T \
+                    "Bazi paketler kurulamadi!\nPaket isimlerini kontrol edin.\n\nTekrar denemek icin Hayir'a basin." \
+                    "Some packages failed to install!\nCheck the package names.\n\nPress No to try again.")" 11 62
+            fi
+
+            # Daha fazla paket?
+            whiptail --title "$(T "Daha Fazla?" "More Packages?")" \
+                --yesno "$(T \
+                    "Baska paket kurmak ister misiniz?" \
+                    "Would you like to install more packages?")" \
+                8 50 || break
+        fi
+    done
+fi
+
+# =============================================================================
+# 13. BiTiS
 # =============================================================================
 clear
 echo -e "${CYAN}${BOLD}"

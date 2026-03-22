@@ -167,13 +167,20 @@ log "CPU: $CPU_VENDOR -> $CPU_UCODE"
 section "$(T "Disk Secimi" "Disk Selection")"
 
 DISK_LIST=()
-while IFS= read -r line; do
-    name=$(awk '{print $1}' <<< "$line")
-    size=$(awk '{print $2}' <<< "$line")
-    model=$(awk '{$1=$2=""; print $0}' <<< "$line" | xargs)
+while IFS= read -r devname; do
+    [[ -z "$devname" ]] && continue
+    size=$(lsblk -dno SIZE "/dev/$devname" 2>/dev/null | xargs)
+    model=$(lsblk -dno MODEL "/dev/$devname" 2>/dev/null | xargs)
+    [[ -z "$size" ]] && continue
     [[ -z "$model" ]] && model="$(T "Bilinmiyor" "Unknown")"
-    DISK_LIST+=("$name" "${size} - ${model}")
-done < <(lsblk -dno NAME,SIZE,MODEL | grep -v "loop\|rom\|sr")
+    DISK_LIST+=("$devname" "${size} - ${model}")
+done < <(lsblk -dno NAME 2>/dev/null | grep -v "^loop\|^sr\|^rom\|^fd")
+
+if [[ ${#DISK_LIST[@]} -eq 0 ]]; then
+    wt_msg "$(T "Kurulabilir disk bulunamadi!\nlsblk ciktisini kontrol edin." \
+               "No installable disk found!\nCheck lsblk output.")" 9 55
+    exit 1
+fi
 
 DISK_NAME=$(whiptail --title "$(T "Disk Secimi" "Disk Selection")" \
     --menu "$(T \

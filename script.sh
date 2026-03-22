@@ -7,10 +7,21 @@
 #  ██║  ██║██║  ██║╚██████╗██║  ██║       ██║   ╚██████╔╝██║
 #  ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 #
+# =============================================================================
 #  TUI Installer v2.1 — LUKS2 + Btrfs + i3wm + Pipewire
 #  dialog tabanlı, TR/EN dil desteği, Slate/Mint tema
 # =============================================================================
 set -euo pipefail
+
+# dialog yoksa kur (Arch ISO'da varsayılan yüklü değil)
+if ! command -v dialog &>/dev/null; then
+    echo "=> dialog bulunamadi, kuruluyor..."
+    pacman -Sy --noconfirm dialog || {
+        echo "HATA: dialog kurulamadi! Cikiliyor."
+        exit 1
+    }
+    echo "=> dialog kuruldu, devam ediliyor..."
+fi
 
 # =============================================================================
 # DIALOG TEMA — Slate/Mint

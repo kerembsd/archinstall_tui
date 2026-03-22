@@ -45,8 +45,7 @@ readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
 readonly SCRIPT_VERSION="2.0"
 
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" >> "$LOG_FILE"
+echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
 # =============================================================================
 # RENK & YARDIMCI FONKSİYONLAR
@@ -54,10 +53,10 @@ echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" >> "$LOG_FILE"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
-log()     { echo -e "${GREEN}[✓]${NC} $*" | tee -a "$LOG_FILE"; }
-warn()    { echo -e "${YELLOW}[!]${NC} $*" | tee -a "$LOG_FILE"; }
-err()     { echo -e "${RED}[✗]${NC} $*"   | tee -a "$LOG_FILE"; }
-section() { echo -e "\n${CYAN}${BOLD}══ $* ══${NC}\n" | tee -a "$LOG_FILE"; }
+log()     { echo -e "${GREEN}[✓]${NC} $*"; echo "[✓] $*" >> "$LOG_FILE"; }
+warn()    { echo -e "${YELLOW}[!]${NC} $*"; echo "[!] $*" >> "$LOG_FILE"; }
+err()     { echo -e "${RED}[✗]${NC} $*";   echo "[✗] $*" >> "$LOG_FILE"; }
+section() { echo -e "\n${CYAN}${BOLD}══ $* ══${NC}\n"; echo -e "\n══ $* ══\n" >> "$LOG_FILE"; }
 
 # Dil desteği
 LANG_CHOICE="tr"
@@ -750,14 +749,26 @@ XINIT
 cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
 [[ -f ~/.bashrc ]] && . ~/.bashrc
 if [[ -z "$DISPLAY" ]] && [[ "$(tty)" == "/dev/tty1" ]]; then
-    exec startx
+    exec startx 2>/tmp/startx-error.log
+    # Hata varsa log dosyasını göster
+    if [[ -s /tmp/startx-error.log ]]; then
+        echo "==> startx hatasi:"
+        cat /tmp/startx-error.log
+    fi
 fi
 BASH_P
 
-if [[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]]; then
+if [[ "$GPU_CHOICE" == "7" ]]; then
+    # VM: startx otomatik baslatma, manuel calistir
+    cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
+[[ -f ~/.bashrc ]] && . ~/.bashrc
+# Sanal makine: startx'i manuel calistirin: $ startx
+BASH_P
+    systemctl enable vboxservice 2>/dev/null || true
+    log "VM modu: startx otomatik baslatma devre disi."
+elif [[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]]; then
     echo "alias nrun='prime-run'  # NVIDIA dGPU" >> "/home/${USER_NAME}/.bashrc"
 fi
-[[ "$GPU_CHOICE" == "7" ]] && systemctl enable vboxservice 2>/dev/null || true
 
 section "i3 Config"
 mkdir -p "/home/${USER_NAME}/.config/i3"
@@ -905,6 +916,8 @@ log "Servisler etkinlestirildi."
 
 section "Yay (AUR)"
 su - "$USER_NAME" -c '
+    export DISPLAY=""
+    export XAUTHORITY=""
     git clone https://aur.archlinux.org/yay.git ~/yay
     cd ~/yay && makepkg -si --noconfirm && rm -rf ~/yay
 '

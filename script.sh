@@ -638,6 +638,25 @@ else
     warn "Dotfiles clone basarisiz! Fallback configler kullanilacak."
 fi
 
+# .xinitrc — dotfiles'dan geldiyse wallpaper satırını güncelle,
+# gelmediyse sıfırdan yaz. Her iki durumda wallpaper png/jpg destekler.
+cat > "/home/${USER_NAME}/.xinitrc" << 'XINIT'
+#!/bin/sh
+setxkbmap tr &
+picom --daemon &
+/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
+nm-applet &
+# Wallpaper — png önce, yoksa jpg dene
+if [ -f "$HOME/Pictures/wallpaper.png" ]; then
+    feh --bg-scale "$HOME/Pictures/wallpaper.png" &
+elif [ -f "$HOME/Pictures/wallpaper.jpg" ]; then
+    feh --bg-scale "$HOME/Pictures/wallpaper.jpg" &
+fi
+exec i3
+XINIT
+chmod +x "/home/${USER_NAME}/.xinitrc"
+log ".xinitrc yazildi"
+
 # Dotfiles'dan gelmediyse fallback .bashrc yaz
 if [[ ! -f "/home/${USER_NAME}/.bashrc" ]]; then
     cat > "/home/${USER_NAME}/.bashrc" << 'BASHRC'
@@ -650,21 +669,6 @@ HISTFILESIZE=2000
 HISTCONTROL=ignoredups:ignorespace
 BASHRC
     log "Fallback .bashrc yazildi"
-fi
-
-# Dotfiles'dan gelmediyse fallback .xinitrc yaz
-if [[ ! -f "/home/${USER_NAME}/.xinitrc" ]]; then
-    cat > "/home/${USER_NAME}/.xinitrc" << 'XINIT'
-#!/bin/sh
-setxkbmap tr &
-picom --daemon &
-/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
-nm-applet &
-[ -f "$HOME/Pictures/wallpaper.jpg" ] && feh --bg-scale "$HOME/Pictures/wallpaper.jpg" &
-exec i3
-XINIT
-    chmod +x "/home/${USER_NAME}/.xinitrc"
-    log "Fallback .xinitrc yazildi"
 fi
 
 # .bash_profile — TTY1'de otomatik startx
@@ -764,6 +768,31 @@ fi
 # Tum dosyalarin sahibini ayarla
 chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/"
 
+# GTK icon teması — Papirus-Dark otomatik ayarla
+mkdir -p "/home/${USER_NAME}/.config/gtk-3.0"
+cat > "/home/${USER_NAME}/.config/gtk-3.0/settings.ini" << 'GTK3'
+[Settings]
+gtk-icon-theme-name=Papirus-Dark
+gtk-theme-name=Adwaita-dark
+gtk-font-name=Hack 10
+gtk-cursor-theme-name=Adwaita
+GTK3
+
+mkdir -p "/home/${USER_NAME}/.config/gtk-4.0"
+cat > "/home/${USER_NAME}/.config/gtk-4.0/settings.ini" << 'GTK4'
+[Settings]
+gtk-icon-theme-name=Papirus-Dark
+gtk-theme-name=Adwaita-dark
+gtk-font-name=Hack 10
+GTK4
+
+cat > "/home/${USER_NAME}/.gtkrc-2.0" << 'GTK2'
+gtk-icon-theme-name="Papirus-Dark"
+gtk-theme-name="Adwaita-dark"
+gtk-font-name="Hack 10"
+GTK2
+log "GTK Papirus-Dark tema ayarlandi"
+
 section "Servisler"
 systemctl enable NetworkManager bluetooth \
     snapper-timeline.timer snapper-cleanup.timer
@@ -789,7 +818,7 @@ su - "$USER_NAME" -c '
     git clone https://aur.archlinux.org/yay.git /tmp/yay_build
     cd /tmp/yay_build && makepkg -si --noconfirm
     rm -rf /tmp/yay_build
-' && log "Yay kuruldu" || warn "Yay kurulamadi (manuel kurabilirsiniz)"
+' && log "Yay kuruldu" || warn "Yay kurulamadi"
 
 log "Chroot tamamlandi."
 CHROOT_EOF
@@ -800,8 +829,14 @@ chmod +x /mnt/chroot.sh
 # 10. PACSTRAP
 # =============================================================================
 clear
-section "$(T "Paketler Kuruluyor" "Installing Packages")"
-echo -e "${CYAN}$(T "Pacstrap baslatiliyor..." "Starting pacstrap...")${NC}"
+echo -e "${CYAN}${BOLD}"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║              PAKETLER KURULUYOR / INSTALLING PACKAGES        ║"
+echo "║                                                              ║"
+echo "║  Lütfen bekleyin, bu işlem 5-15 dakika sürebilir.           ║"
+echo "║  Please wait, this may take 5-15 minutes.                   ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
 echo ""
 
 declare -a PACKAGES=(
@@ -817,14 +852,22 @@ declare -a PACKAGES=(
     "bluez" "bluez-utils" "blueman"
     "ufw" "zram-generator" "snapper" "snap-pac"
     "feh" "picom" "dunst"
-    "ttf-dejavu" "ttf-liberation" "noto-fonts"
+    "ttf-dejavu" "ttf-liberation" "noto-fonts" "ttf-hack"
+    "papirus-icon-theme" "lxappearance"
     "man-db" "man-pages"
 )
 for pkg in $GPU_PKGS; do PACKAGES+=("$pkg"); done
 
-if timeout 1800 pacstrap /mnt "${PACKAGES[@]}" 2>&1 | tee -a "$LOG_FILE"; then
-    log "$(T "Paketler kuruldu" "Packages installed")"
+# Paketsayısını göster
+echo -e "${YELLOW}$(T "Kurulacak paket sayısı" "Total packages"): ${#PACKAGES[@]}${NC}"
+echo ""
+
+# Pacstrap — çıktıyı hem terminale hem log'a yaz, ama stdout unbuffered
+if timeout 1800 pacstrap /mnt "${PACKAGES[@]}" 2>&1 | stdbuf -oL tee -a "$LOG_FILE"; then
+    echo ""
+    log "$(T "Paketler basariyla kuruldu." "Packages installed successfully.")"
 else
+    echo ""
     ui_error "$(T "Hata" "Error")" "$(T "Paket kurulumu basarisiz!\nLog: $LOG_FILE" "Package installation failed!\nLog: $LOG_FILE")"
     exit 1
 fi

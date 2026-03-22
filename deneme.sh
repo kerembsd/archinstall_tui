@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# ArchInstall TUI v4.0 — LUKS2 + Btrfs + i3wm + Pipewire (Whiptail)
+# ArchInstall TUI v4.2 — LUKS2 + Btrfs + i3wm + Pipewire (FIXED & STABLE)
 # =============================================================================
 set -euo pipefail
 
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
-readonly SCRIPT_VERSION="4.0"
+readonly SCRIPT_VERSION="4.2"
 
 echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
@@ -26,10 +26,30 @@ LANG_CHOICE="tr"
 T() { [[ "$LANG_CHOICE" == "tr" ]] && echo "$1" || echo "$2"; }
 
 # =============================================================================
+# CLEANUP TRAP (KRİTİK)
+# =============================================================================
+cleanup_on_error() {
+    local code=$?
+    if [[ $code -ne 0 ]]; then
+        echo ""
+        err "$(T "Kurulum başarısız oldu! (Kod: $code)" "Installation failed! (Code: $code)")"
+        err "$(T "Temizleniyor..." "Cleaning up...")"
+        
+        # Bağlantıları aç
+        umount -R /mnt 2>/dev/null || true
+        cryptsetup close cryptroot 2>/dev/null || true
+        
+        err "$(T "Log: $LOG_FILE" "Log: $LOG_FILE")"
+    fi
+    return $code
+}
+
+trap cleanup_on_error EXIT ERR
+
+# =============================================================================
 # WHIPTAIL FONKSIYONLARI
 # =============================================================================
 
-# Whiptail yükle
 if ! command -v whiptail &>/dev/null; then
     echo "Whiptail kuruluyor..."
     pacman -Sy --noconfirm whiptail >/dev/null 2>&1 || {
@@ -71,11 +91,45 @@ ui_menu() {
 }
 
 # =============================================================================
+# DISK KONTROL FONKSİYONLARI
+# =============================================================================
+
+check_disk_space() {
+    local disk="$1"
+    local available=$(df "$disk" 2>/dev/null | awk 'NR==2 {print $4}')
+    local needed=$((20 * 1024 * 1024))  # 20GB
+    
+    if [[ -z "$available" ]] || [[ $available -lt $needed ]]; then
+        ui_error "$(T "Hata" "Error")" "$(T \
+            "Yeterli boş alan yok!\n\nGerekli: 20GB" \
+            "Not enough free space!\n\nRequired: 20GB")"
+        return 1
+    fi
+    log "$(T "Disk alanı: OK" "Disk space: OK")"
+    return 0
+}
+
+check_partition_table() {
+    local disk="$1"
+    
+    if ! sgdisk --print "$disk" &>/dev/null; then
+        if ! sgdisk --zap-all "$disk" >> "$LOG_FILE" 2>&1; then
+            ui_error "$(T "Hata" "Error")" "$(T \
+                "Disk temizlenemedi!\nBaşka işlem kullanıyor olabilir." \
+                "Cannot clean disk!\nAnother process may be using it.")"
+            return 1
+        fi
+    fi
+    log "$(T "Partition tablosu: OK" "Partition table: OK")"
+    return 0
+}
+
+# =============================================================================
 # 0. DİL SEÇİMİ
 # =============================================================================
 LANG_CHOICE=$(ui_menu \
     "ArchInstall v${SCRIPT_VERSION}" \
-    "Dil secin / Select language:" \
+    "$(T "Dil secin / Select language:" "Select language / Dil secin:")" \
     "tr" "Turkce" \
     "en" "English") || exit 0
 
@@ -95,7 +149,6 @@ Bu script kuracak:
 - Pipewire ses
 - ZRAM swap
 - UFW firewall
-- Yay AUR helper
 
 Log: $LOG_FILE" \
 "Arch Linux Installation Wizard
@@ -107,7 +160,6 @@ This script will install:
 - Pipewire audio
 - ZRAM swap
 - UFW firewall
-- Yay AUR helper
 
 Log: $LOG_FILE")"
 
@@ -237,20 +289,18 @@ while true; do
         continue
     }
 
-    [[ ${#LUKS_PASS} -lt 8 ]] && {
-        ui_error "$(T "Hata" "Error")" "$(T "En az 8 karakter!" "Minimum 8 characters!")"
-        continue
-    }
-
     strength=$(check_pass_strength "$LUKS_PASS")
-    [[ $strength -ge 3 ]] && break
-
-    if ! ui_question "$(T "Uyari" "Warning")" "$(T "Zayif sifre. Devam?" "Weak password. Continue?")"; then
-        continue
+    
+    if [[ $strength -lt 2 ]]; then
+        if ! ui_question "$(T "Uyari" "Warning")" "$(T \
+            "Zayif sifre (${#LUKS_PASS} karakter)\n\nDevam etmek istiyor musun?" \
+            "Weak password (${#LUKS_PASS} characters)\n\nContinue anyway?")"; then
+            continue
+        fi
     fi
     break
 done
-log "LUKS passphrase set"
+log "LUKS passphrase set (${#LUKS_PASS} characters)"
 
 # =============================================================================
 # 6. SİSTEM AYARLARI
@@ -373,6 +423,7 @@ GPU: ${GPU_LABELS[$GPU_CHOICE]}
 Timezone: $TIMEZONE
 Locale: ${LOCALE}.UTF-8
 ZRAM: ${ZRAM_SIZE}MB
+LUKS Sifre: ${#LUKS_PASS} karakter
 
 DEVAM?" \
 "SETTINGS:
@@ -384,6 +435,7 @@ GPU: ${GPU_LABELS[$GPU_CHOICE]}
 Timezone: $TIMEZONE
 Locale: ${LOCALE}.UTF-8
 ZRAM: ${ZRAM_SIZE}MB
+LUKS Password: ${#LUKS_PASS} characters
 
 CONTINUE?")"; then
     exit 0
@@ -422,53 +474,123 @@ fi
 clear
 section "$(T "KURULUM BASLADI" "INSTALLATION STARTED")"
 
-log "NTP senkronizasyonu..."
-timedatectl set-ntp true >> "$LOG_FILE" 2>&1
+log "$(T "Disk kontrolleri yapiliyor..." "Checking disk...")"
+check_disk_space "$DISK" || exit 1
+check_partition_table "$DISK" || exit 1
 
-log "Disk bolümlendiriliyor..."
-sgdisk --zap-all "$DISK" >> "$LOG_FILE" 2>&1
-sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI" "$DISK" >> "$LOG_FILE" 2>&1
-sgdisk -n 2:0:0 -t 2:8309 -c 2:"LUKS" "$DISK" >> "$LOG_FILE" 2>&1
-partprobe "$DISK" >> "$LOG_FILE" 2>&1
+log "$(T "NTP senkronizasyonu..." "NTP sync...")"
+timedatectl set-ntp true >> "$LOG_FILE" 2>&1 || {
+    warn "$(T "NTP basarisiz" "NTP failed")"
+}
+
+log "$(T "Disk bolümlendiriliyor..." "Partitioning...")"
+sgdisk --zap-all "$DISK" >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "Disk temizleme başarısız!" "Disk cleanup failed!")"
+    exit 1
+}
+
+sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI" "$DISK" >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "EFI partition olusturulamadi!" "EFI partition creation failed!")"
+    exit 1
+}
+
+sgdisk -n 2:0:0 -t 2:8309 -c 2:"LUKS" "$DISK" >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "LUKS partition olusturulamadi!" "LUKS partition creation failed!")"
+    exit 1
+}
+
+partprobe "$DISK" >> "$LOG_FILE" 2>&1 || true
 sleep 1
 
-log "LUKS2 sifreleniyor..."
+log "$(T "LUKS2 sifreleniyor..." "LUKS2 encryption...")"
 echo -n "$LUKS_PASS" | cryptsetup luksFormat \
     --type luks2 --cipher aes-xts-plain64 \
     --key-size 512 --hash sha512 --pbkdf argon2id \
     --batch-mode --key-file=- \
-    "$ROOT_PART" >> "$LOG_FILE" 2>&1
-echo -n "$LUKS_PASS" | cryptsetup open --key-file=- "$ROOT_PART" cryptroot >> "$LOG_FILE" 2>&1
+    "$ROOT_PART" >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "LUKS2 sifreleme başarısız!" "LUKS2 encryption failed!")"
+    exit 1
+}
+
+echo -n "$LUKS_PASS" | cryptsetup open --key-file=- "$ROOT_PART" cryptroot >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "LUKS2 acma başarısız!" "LUKS2 open failed!")"
+    exit 1
+}
+
+# ŞİFRESİ BELLEKTEN SİL (KRİTİK)
+unset LUKS_PASS LUKS_PASS2
+
 REAL_LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
 log "LUKS UUID: $REAL_LUKS_UUID"
 
-log "Btrfs yapilandiriliyor..."
-mkfs.btrfs -f -L "arch_root" /dev/mapper/cryptroot >> "$LOG_FILE" 2>&1
-mount /dev/mapper/cryptroot /mnt
-for sub in @ @home @log @pkg @snapshots @tmp; do
-    btrfs subvolume create "/mnt/$sub" >> "$LOG_FILE" 2>&1
-done
-umount /mnt
-mount -o "${MOUNT_OPTS},subvol=@" /dev/mapper/cryptroot /mnt
-mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,tmp,boot}
-mount -o "${MOUNT_OPTS},subvol=@home" /dev/mapper/cryptroot /mnt/home
-mount -o "${MOUNT_OPTS},subvol=@log" /dev/mapper/cryptroot /mnt/var/log
-mount -o "${MOUNT_OPTS},subvol=@pkg" /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg
-mount -o "${MOUNT_OPTS},subvol=@snapshots" /dev/mapper/cryptroot /mnt/.snapshots
-mount -o "${MOUNT_OPTS},subvol=@tmp,nosuid,nodev" /dev/mapper/cryptroot /mnt/tmp
-mkfs.fat -F32 -n "EFI" "$EFI_PART" >> "$LOG_FILE" 2>&1
-mount "$EFI_PART" /mnt/boot
+log "$(T "Btrfs yapilandiriliyor..." "Configuring Btrfs...")"
+mkfs.btrfs -f -L "arch_root" /dev/mapper/cryptroot >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "Btrfs olusturma başarısız!" "Btrfs creation failed!")"
+    exit 1
+}
 
-log "Mirrorlist hazirlaniyor..."
-pacman -Sy --noconfirm archlinux-keyring >> "$LOG_FILE" 2>&1
+mount /dev/mapper/cryptroot /mnt >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "Btrfs baglantisi başarısız!" "Btrfs mount failed!")"
+    exit 1
+}
+
+for sub in @ @home @log @pkg @snapshots @tmp; do
+    if ! btrfs subvolume create "/mnt/$sub" >> "$LOG_FILE" 2>&1; then
+        umount /mnt
+        ui_error "$(T "Hata" "Error")" "$(T "Subvolume $sub olusturulamadi!" "Cannot create subvolume $sub!")"
+        exit 1
+    fi
+done
+
+umount /mnt >> "$LOG_FILE" 2>&1
+
+mount -o "${MOUNT_OPTS},subvol=@" /dev/mapper/cryptroot /mnt >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "Root mount başarısız!" "Root mount failed!")"
+    exit 1
+}
+
+mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,tmp,boot}
+
+mount -o "${MOUNT_OPTS},subvol=@home" /dev/mapper/cryptroot /mnt/home >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "@home mount başarısız!" "@home mount failed!")"
+    exit 1
+}
+
+mount -o "${MOUNT_OPTS},subvol=@log" /dev/mapper/cryptroot /mnt/var/log >> "$LOG_FILE" 2>&1 || true
+mount -o "${MOUNT_OPTS},subvol=@pkg" /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg >> "$LOG_FILE" 2>&1 || true
+mount -o "${MOUNT_OPTS},subvol=@snapshots" /dev/mapper/cryptroot /mnt/.snapshots >> "$LOG_FILE" 2>&1 || true
+mount -o "${MOUNT_OPTS},subvol=@tmp,nosuid,nodev" /dev/mapper/cryptroot /mnt/tmp >> "$LOG_FILE" 2>&1 || true
+
+mkfs.fat -F32 -n "EFI" "$EFI_PART" >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "EFI partition olusturulamadi!" "EFI partition creation failed!")"
+    exit 1
+}
+
+mount "$EFI_PART" /mnt/boot >> "$LOG_FILE" 2>&1 || {
+    ui_error "$(T "Hata" "Error")" "$(T "EFI mount başarısız!" "EFI mount failed!")"
+    exit 1
+}
+
+log "$(T "Mirrorlist hazirlaniyor..." "Preparing mirrorlist...")"
+pacman -Sy --noconfirm archlinux-keyring >> "$LOG_FILE" 2>&1 || {
+    warn "$(T "Keyring basarisiz" "Keyring failed")"
+}
+
 if [[ "$USE_REFLECTOR" == "yes" ]]; then
-    pacman -S --noconfirm reflector >> "$LOG_FILE" 2>&1
-    reflector --country Turkey,Germany,Netherlands,France \
-        --protocol https --age 12 --sort rate --fastest 10 \
-        --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1
+    if pacman -S --noconfirm reflector >> "$LOG_FILE" 2>&1; then
+        if reflector --country Turkey,Germany,Netherlands,France \
+            --protocol https --age 12 --sort rate --fastest 10 \
+            --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1; then
+            log "$(T "Reflector: OK" "Reflector: OK")"
+        else
+            warn "$(T "Reflector başarısız, varsayılan mirrorlar kullanılıyor" "Reflector failed, using default mirrors")"
+        fi
+    else
+        warn "$(T "Reflector kurulamadi, varsayılan mirrorlar kullanılıyor" "Reflector installation failed, using default mirrors")"
+    fi
 fi
 
-log "Degiskenler hazirlaniyor..."
+log "$(T "Degiskenler hazirlaniyor..." "Preparing variables...")"
 cat > /mnt/chroot_vars.sh << VARS
 USER_NAME="${USER_NAME}"
 HOST_NAME="${HOST_NAME}"
@@ -480,7 +602,7 @@ TIMEZONE="${TIMEZONE}"
 LOCALE="${LOCALE}"
 VARS
 
-log "Chroot scripti yaziliyor..."
+log "$(T "Chroot scripti yaziliyor..." "Writing chroot script...")"
 
 cat > /mnt/chroot.sh << 'CHROOT_EOF'
 #!/bin/bash
@@ -786,24 +908,16 @@ for svc in pipewire.service pipewire-pulse.service wireplumber.service; do
 done
 chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config/systemd"
 
-section "Yay (AUR)"
-su - "$USER_NAME" -c '
-    export DISPLAY=""
-    export XAUTHORITY=""
-    git clone https://aur.archlinux.org/yay.git ~/yay
-    cd ~/yay && makepkg -si --noconfirm && rm -rf ~/yay
-'
-log "Yay kuruldu."
 CHROOT_EOF
 
 chmod +x /mnt/chroot.sh
 
 # =============================================================================
-# 10. PACSTRAP
+# 10. PACSTRAP (TIMEOUT İLE)
 # =============================================================================
-log "Paketler kuruluyor..."
+log "$(T "Paketler kuruluyor (10-30 dakika surabilir)..." "Installing packages (may take 10-30 minutes)...")"
 
-pacstrap /mnt \
+if ! timeout 1800 pacstrap /mnt \
     base base-devel linux linux-headers linux-firmware "$CPU_UCODE" \
     btrfs-progs nano nano-syntax-highlighting terminus-font \
     networkmanager network-manager-applet \
@@ -818,20 +932,37 @@ pacstrap /mnt \
     feh picom dunst \
     ttf-dejavu ttf-liberation noto-fonts \
     man-db man-pages \
-    $GPU_PKGS >> "$LOG_FILE" 2>&1
+    $GPU_PKGS >> "$LOG_FILE" 2>&1; then
+    
+    ui_error "$(T "Hata" "Error")" "$(T \
+        "Paket kurulumu başarısız veya timeout!\n\nLog: $LOG_FILE" \
+        "Package installation failed or timeout!\n\nLog: $LOG_FILE")"
+    exit 1
+fi
 
-genfstab -U /mnt >> /mnt/etc/fstab
-cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+log "$(T "fstab olusturuluyor..." "Creating fstab...")"
+genfstab -U /mnt >> /mnt/etc/fstab || {
+    ui_error "$(T "Hata" "Error")" "$(T "fstab olusturulamadi!" "Cannot create fstab!")"
+    exit 1
+}
+
+cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist || true
 
 # =============================================================================
-# 11. CHROOT
+# 11. CHROOT (HATA KONTROLÜ)
 # =============================================================================
 clear
 section "$(T "Sistem Yapilandirmasi" "System Configuration")"
-echo "Root ve kullanici sifreleri sorulacak..."
+echo "$(T "Root ve kullanici sifreleri sorulacak..." "Root and user passwords will be prompted...")"
 echo ""
 
-arch-chroot /mnt /chroot.sh
+if ! arch-chroot /mnt /chroot.sh; then
+    ui_error "$(T "Hata" "Error")" "$(T \
+        "Chroot konfigürasyonu başarısız!\n\nLog: $LOG_FILE" \
+        "Chroot configuration failed!\n\nLog: $LOG_FILE")"
+    exit 1
+fi
+
 rm -f /mnt/chroot.sh /mnt/chroot_vars.sh
 
 # =============================================================================
@@ -854,8 +985,12 @@ if ui_question "$(T "Ek Paketler" "Extra Packages")" "$(T \
             "Install: $EXTRA_INPUT\n\nContinue?")"; then
 
             clear
-            echo "Paketler kuruluyor..."
-            arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT
+            echo "$(T "Paketler kuruluyor..." "Installing packages...")"
+            if ! arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT; then
+                ui_error "$(T "Hata" "Error")" "$(T \
+                    "Bazi paketler kurulamadi!" \
+                    "Some packages failed to install!")"
+            fi
 
             if ! ui_question "$(T "Devam" "Continue")" "$(T "Baska paket kurmak ister misiniz?" "Install more packages?")"; then
                 break
@@ -879,7 +1014,6 @@ KURULULAR:
 - Pipewire ses
 - ZRAM ${ZRAM_SIZE}MB swap
 - UFW firewall
-- Yay AUR helper
 
 NOTLAR:
 - Log: $LOG_FILE
@@ -895,7 +1029,6 @@ INSTALLED:
 - Pipewire audio
 - ZRAM ${ZRAM_SIZE}MB swap
 - UFW firewall
-- Yay AUR helper
 
 NOTES:
 - Log: $LOG_FILE
@@ -903,5 +1036,5 @@ NOTES:
 - Audio issue: systemctl --user enable --now pipewire pipewire-pulse wireplumber
 - Optimus dGPU: nrun <app>")"
 
-log "Kurulum tamamlandi!"
+log "$(T "Kurulum tamamlandi!" "Installation completed!")"
 echo ""

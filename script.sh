@@ -27,26 +27,7 @@ fi
 # DIALOG TEMA — Slate/Mint
 # Görseldeki renk şeması: koyu gri arka plan, mint yeşil vurgular
 # =============================================================================
-export DIALOGRC="/tmp/.dialogrc_archinstall"
-
-# Bu dialog versiyonunun destekledigi degiskenleri al, sonra ustune yaz
-dialog --create-rc "$DIALOGRC" 2>/dev/null || touch "$DIALOGRC"
-
-# Renkleri sed ile degistir — boylece desteklenmeyen degisken sorunu olmaz
-sed -i 's/^screen_color.*/screen_color = (GREEN,BLACK,ON)/'           "$DIALOGRC"
-sed -i 's/^dialog_color.*/dialog_color = (GREEN,BLACK,OFF)/'           "$DIALOGRC"
-sed -i 's/^border_color.*/border_color = (GREEN,BLACK,ON)/'            "$DIALOGRC"
-sed -i 's/^title_color.*/title_color = (GREEN,BLACK,ON)/'              "$DIALOGRC"
-sed -i 's/^button_active_color.*/button_active_color = (BLACK,GREEN,ON)/' "$DIALOGRC"
-sed -i 's/^button_inactive_color.*/button_inactive_color = (GREEN,BLACK,OFF)/' "$DIALOGRC"
-sed -i 's/^menubox_color.*/menubox_color = (GREEN,BLACK,OFF)/'         "$DIALOGRC"
-sed -i 's/^item_color.*/item_color = (GREEN,BLACK,OFF)/'               "$DIALOGRC"
-sed -i 's/^item_selected_color.*/item_selected_color = (BLACK,GREEN,ON)/' "$DIALOGRC"
-sed -i 's/^inputbox_color.*/inputbox_color = (GREEN,BLACK,OFF)/'       "$DIALOGRC"
-sed -i 's/^check_color.*/check_color = (GREEN,BLACK,OFF)/'             "$DIALOGRC"
-sed -i 's/^check_selected_color.*/check_selected_color = (BLACK,GREEN,ON)/' "$DIALOGRC"
-sed -i 's/^textbox_color.*/textbox_color = (GREEN,BLACK,OFF)/'         "$DIALOGRC"
-sed -i 's/^gauge_color.*/gauge_color = (BLACK,GREEN,ON)/'              "$DIALOGRC"
+unset DIALOGRC
 
 # =============================================================================
 # SABITLER

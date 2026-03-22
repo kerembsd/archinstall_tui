@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# ArchInstall TUI v4.8 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
+# ArchInstall TUI v4.9 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
 # =============================================================================
 set -euo pipefail
 
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
-readonly SCRIPT_VERSION="4.8"
+readonly SCRIPT_VERSION="4.9"
 
 echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
@@ -765,6 +765,26 @@ nm-applet &
 exec i3
 XINIT
 
+chmod +x "/home/${USER_NAME}/.xinitrc"
+
+section ".bashrc"
+cat > "/home/${USER_NAME}/.bashrc" << 'BASHRC'
+[[ $- != *i* ]] && return
+
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+
+PS1='[\u@\h \W]\$ '
+
+HISTSIZE=1000
+HISTFILESIZE=2000
+HISTCONTROL=ignoredups:ignorespace
+BASHRC
+
+[[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]] && \
+    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
+
+section ".bash_profile"
 if [[ "$GPU_CHOICE" == "7" ]]; then
     cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
 [[ -f ~/.bashrc ]] && . ~/.bashrc
@@ -773,14 +793,12 @@ BASH_P
 else
     cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
 [[ -f ~/.bashrc ]] && . ~/.bashrc
-if [[ -z "$DISPLAY" ]] && [[ "$(tty)" == "/dev/tty1" ]]; then
+
+if [[ -z "$DISPLAY" ]] && [[ "$XDG_VTNR" == "1" ]]; then
     exec startx
 fi
 BASH_P
 fi
-
-[[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]] && \
-    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
 
 section "i3 Config"
 mkdir -p "/home/${USER_NAME}/.config/i3"
@@ -912,6 +930,7 @@ I3CONF
 chown -R "${USER_NAME}:${USER_NAME}" \
     "/home/${USER_NAME}/.xinitrc" \
     "/home/${USER_NAME}/.bash_profile" \
+    "/home/${USER_NAME}/.bashrc" \
     "/home/${USER_NAME}/.config"
 
 section "Servisler"

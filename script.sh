@@ -28,42 +28,25 @@ fi
 # Görseldeki renk şeması: koyu gri arka plan, mint yeşil vurgular
 # =============================================================================
 export DIALOGRC="/tmp/.dialogrc_archinstall"
-cat > "$DIALOGRC" << 'DIALOGRC_EOF'
-screen_color = (GREEN,BLACK,ON)
-dialog_color = (GREEN,BLACK,OFF)
-border_color = (GREEN,BLACK,ON)
-title_color  = (GREEN,BLACK,ON)
-button_active_color       = (BLACK,GREEN,ON)
-button_inactive_color     = (GREEN,BLACK,OFF)
-button_key_active_color   = (BLACK,GREEN,ON)
-button_key_inactive_color = (GREEN,BLACK,OFF)
-button_label_active_color   = (BLACK,GREEN,ON)
-button_label_inactive_color = (GREEN,BLACK,OFF)
-menubox_color        = (GREEN,BLACK,OFF)
-menubox_border_color = (GREEN,BLACK,ON)
-item_color           = (GREEN,BLACK,OFF)
-item_selected_color  = (BLACK,GREEN,ON)
-tag_color            = (GREEN,BLACK,ON)
-tag_selected_color   = (BLACK,GREEN,ON)
-tag_key_color        = (GREEN,BLACK,ON)
-tag_key_selected_color = (BLACK,GREEN,ON)
-inputbox_color        = (GREEN,BLACK,OFF)
-inputbox_border_color = (GREEN,BLACK,ON)
-passwordbox_color        = (GREEN,BLACK,OFF)
-passwordbox_border_color = (GREEN,BLACK,ON)
-check_color          = (GREEN,BLACK,OFF)
-check_selected_color = (BLACK,GREEN,ON)
-textbox_color        = (GREEN,BLACK,OFF)
-textbox_border_color = (GREEN,BLACK,ON)
-form_active_text_color   = (BLACK,GREEN,ON)
-form_text_color          = (GREEN,BLACK,OFF)
-form_item_readonly_color = (GREEN,BLACK,ON)
-gauge_color            = (BLACK,GREEN,ON)
-searchbox_color        = (GREEN,BLACK,OFF)
-searchbox_title_color  = (GREEN,BLACK,ON)
-searchbox_border_color = (GREEN,BLACK,ON)
-shadow_color = (BLACK,BLACK,ON)
-DIALOGRC_EOF
+
+# Bu dialog versiyonunun destekledigi degiskenleri al, sonra ustune yaz
+dialog --create-rc "$DIALOGRC" 2>/dev/null || touch "$DIALOGRC"
+
+# Renkleri sed ile degistir — boylece desteklenmeyen degisken sorunu olmaz
+sed -i 's/^screen_color.*/screen_color = (GREEN,BLACK,ON)/'           "$DIALOGRC"
+sed -i 's/^dialog_color.*/dialog_color = (GREEN,BLACK,OFF)/'           "$DIALOGRC"
+sed -i 's/^border_color.*/border_color = (GREEN,BLACK,ON)/'            "$DIALOGRC"
+sed -i 's/^title_color.*/title_color = (GREEN,BLACK,ON)/'              "$DIALOGRC"
+sed -i 's/^button_active_color.*/button_active_color = (BLACK,GREEN,ON)/' "$DIALOGRC"
+sed -i 's/^button_inactive_color.*/button_inactive_color = (GREEN,BLACK,OFF)/' "$DIALOGRC"
+sed -i 's/^menubox_color.*/menubox_color = (GREEN,BLACK,OFF)/'         "$DIALOGRC"
+sed -i 's/^item_color.*/item_color = (GREEN,BLACK,OFF)/'               "$DIALOGRC"
+sed -i 's/^item_selected_color.*/item_selected_color = (BLACK,GREEN,ON)/' "$DIALOGRC"
+sed -i 's/^inputbox_color.*/inputbox_color = (GREEN,BLACK,OFF)/'       "$DIALOGRC"
+sed -i 's/^check_color.*/check_color = (GREEN,BLACK,OFF)/'             "$DIALOGRC"
+sed -i 's/^check_selected_color.*/check_selected_color = (BLACK,GREEN,ON)/' "$DIALOGRC"
+sed -i 's/^textbox_color.*/textbox_color = (GREEN,BLACK,OFF)/'         "$DIALOGRC"
+sed -i 's/^gauge_color.*/gauge_color = (BLACK,GREEN,ON)/'              "$DIALOGRC"
 
 # =============================================================================
 # SABITLER

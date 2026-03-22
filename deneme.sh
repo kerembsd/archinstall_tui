@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# ArchInstall TUI v4.9 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
+# ArchInstall TUI v5.0 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
 # =============================================================================
 set -euo pipefail
 
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
-readonly SCRIPT_VERSION="4.9"
+readonly SCRIPT_VERSION="5.0"
 
 echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
@@ -316,7 +316,7 @@ done
 log "LUKS passphrase set (${#LUKS_PASS} characters)"
 
 # =============================================================================
-# 6. SİSTEM AYARLARI (DÜZELTILMIŞ - TÜM MENÜLER ÇEVİRİLİ)
+# 6. SİSTEM AYARLARI
 # =============================================================================
 section "$(T "Sistem Ayarlari" "System Settings")"
 
@@ -754,6 +754,37 @@ fi
 
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
+section ".bashrc"
+cat > "/home/${USER_NAME}/.bashrc" << 'BASHRC'
+# ~/.bashrc
+
+[[ $- != *i* ]] && return
+
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+
+PS1='[\u@\h \W]\$ '
+
+HISTSIZE=1000
+HISTFILESIZE=2000
+HISTCONTROL=ignoredups:ignorespace
+
+# TTY1'de otomatik startx başlat
+if [[ -z "$DISPLAY" ]] && [[ "$XDG_VTNR" == "1" ]]; then
+    exec startx
+fi
+BASHRC
+
+# GPU alias'ı ekle (Optimus için)
+if [[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]]; then
+    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
+fi
+
+section ".bash_profile"
+cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
+[[ -f ~/.bashrc ]] && . ~/.bashrc
+BASH_P
+
 section ".xinitrc"
 cat > "/home/${USER_NAME}/.xinitrc" << 'XINIT'
 #!/bin/sh
@@ -767,37 +798,9 @@ XINIT
 
 chmod +x "/home/${USER_NAME}/.xinitrc"
 
-section ".bashrc"
-cat > "/home/${USER_NAME}/.bashrc" << 'BASHRC'
-[[ $- != *i* ]] && return
-
-alias ls='ls --color=auto'
-alias grep='grep --color=auto'
-
-PS1='[\u@\h \W]\$ '
-
-HISTSIZE=1000
-HISTFILESIZE=2000
-HISTCONTROL=ignoredups:ignorespace
-BASHRC
-
-[[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]] && \
-    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
-
-section ".bash_profile"
+# VirtualBox için özel ayar
 if [[ "$GPU_CHOICE" == "7" ]]; then
-    cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
-[[ -f ~/.bashrc ]] && . ~/.bashrc
-BASH_P
     systemctl enable vboxservice 2>/dev/null || true
-else
-    cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
-[[ -f ~/.bashrc ]] && . ~/.bashrc
-
-if [[ -z "$DISPLAY" ]] && [[ "$XDG_VTNR" == "1" ]]; then
-    exec startx
-fi
-BASH_P
 fi
 
 section "i3 Config"
@@ -937,7 +940,7 @@ section "Servisler"
 systemctl enable NetworkManager bluetooth \
     snapper-timeline.timer snapper-cleanup.timer
 
-# Pipewire'ı global olarak enable et (user session için değil)
+# Pipewire'ı global olarak enable et
 systemctl --global enable pipewire wireplumber 2>/dev/null || true
 
 # NVIDIA suspend/resume servisleri (varsa)
@@ -951,7 +954,7 @@ CHROOT_EOF
 chmod +x /mnt/chroot.sh
 
 # =============================================================================
-# 10. PACSTRAP (DOĞRU YAKLAŞIM - PACMAN ÇIKTISINI DOĞRUDAN GÖSTER)
+# 10. PACSTRAP
 # =============================================================================
 clear
 section "$(T "Paketler Kuruluyor" "Installing Packages")"
@@ -959,7 +962,6 @@ section "$(T "Paketler Kuruluyor" "Installing Packages")"
 echo -e "${CYAN}$(T "Pacstrap başlatılıyor... Lütfen bekleyin." "Pacstrap starting... Please wait.")${NC}"
 echo ""
 
-# Paket listesi (array olarak)
 declare -a PACKAGES=(
     "base" "base-devel" "linux" "linux-headers" "linux-firmware" "$CPU_UCODE"
     "btrfs-progs" "nano" "nano-syntax-highlighting" "terminus-font"
@@ -977,13 +979,10 @@ declare -a PACKAGES=(
     "man-db" "man-pages"
 )
 
-# GPU paketlerini ekle
 for pkg in $GPU_PKGS; do
     PACKAGES+=("$pkg")
 done
 
-# Pacstrap'i çalıştır - çıktıyı DOĞRUDAN terminale göster
-# Log dosyasına da kaydet
 if timeout 1800 pacstrap /mnt "${PACKAGES[@]}" 2>&1 | tee -a "$LOG_FILE"; then
     echo ""
     log "$(T "Paketler basariyla kuruldu" "Packages installed successfully")"

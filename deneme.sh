@@ -1,12 +1,13 @@
 #!/bin/bash
 # =============================================================================
-# ArchInstall TUI v5.0 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
+# ArchInstall TUI v5.1 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
 # =============================================================================
 set -euo pipefail
 
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
-readonly SCRIPT_VERSION="5.0"
+readonly SCRIPT_VERSION="5.1"
+readonly DOTFILES_REPO="https://github.com/kerembsd/i3wm.git"
 
 echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
@@ -21,7 +22,6 @@ warn()    { echo -e "${YELLOW}[!]${NC} $*" | tee -a "$LOG_FILE"; }
 err()     { echo -e "${RED}[✗]${NC} $*" | tee -a "$LOG_FILE" >&2; }
 section() { echo -e "\n${CYAN}${BOLD}══ $* ══${NC}\n" | tee -a "$LOG_FILE"; }
 
-# Dil desteği
 LANG_CHOICE="tr"
 T() { [[ "$LANG_CHOICE" == "tr" ]] && echo "$1" || echo "$2"; }
 
@@ -34,21 +34,17 @@ cleanup_on_error() {
         echo ""
         err "$(T "Kurulum başarısız oldu! (Kod: $code)" "Installation failed! (Code: $code)")"
         err "$(T "Temizleniyor..." "Cleaning up...")"
-        
         umount -R /mnt 2>/dev/null || true
         cryptsetup close cryptroot 2>/dev/null || true
-        
         err "$(T "Log: $LOG_FILE" "Log: $LOG_FILE")"
     fi
     return $code
 }
-
 trap cleanup_on_error EXIT ERR
 
 # =============================================================================
 # WHIPTAIL FONKSIYONLARI
 # =============================================================================
-
 if ! command -v whiptail &>/dev/null; then
     echo "Whiptail kuruluyor..."
     pacman -Sy --noconfirm whiptail >/dev/null 2>&1 || {
@@ -58,65 +54,42 @@ if ! command -v whiptail &>/dev/null; then
 fi
 
 ui_info() {
-    local title="$1" msg="$2"
-    whiptail --title "$title" --msgbox "$msg" 15 70 3>/dev/tty
+    whiptail --title "$1" --msgbox "$2" 15 70 3>/dev/tty
 }
-
 ui_error() {
-    local title="$1" msg="$2"
-    whiptail --title "$title" --msgbox "$msg" 15 70 3>/dev/tty
+    whiptail --title "$1" --msgbox "$2" 15 70 3>/dev/tty
 }
-
 ui_question() {
-    local title="$1" msg="$2"
-    whiptail --title "$title" --yesno "$msg" 15 70 3>/dev/tty
+    whiptail --title "$1" --yesno "$2" 15 70 3>/dev/tty
 }
-
 ui_input() {
     local title="$1" msg="$2" default="${3:-}"
     whiptail --title "$title" --inputbox "$msg" 12 70 "$default" 3>&1 1>&2 2>&3 3>/dev/tty
 }
-
 ui_password() {
-    local title="$1" msg="$2"
-    whiptail --title "$title" --passwordbox "$msg" 12 70 3>&1 1>&2 2>&3 3>/dev/tty
+    whiptail --title "$1" --passwordbox "$2" 12 70 3>&1 1>&2 2>&3 3>/dev/tty
 }
-
 ui_menu() {
     local title="$1" msg="$2"
     shift 2
-    local items=("$@")
-    whiptail --title "$title" --menu "$msg" 20 70 10 "${items[@]}" 3>&1 1>&2 2>&3 3>/dev/tty
+    whiptail --title "$title" --menu "$msg" 20 70 10 "$@" 3>&1 1>&2 2>&3 3>/dev/tty
 }
 
 # =============================================================================
 # DISK KONTROL FONKSİYONLARI
 # =============================================================================
-
 check_disk_space() {
     local disk="$1"
-    
-    if [[ ! -b "$disk" ]]; then
-        err "$(T "Disk bulunamadi: $disk" "Disk not found: $disk")"
-        return 1
-    fi
-    
+    [[ ! -b "$disk" ]] && { err "Disk bulunamadi: $disk"; return 1; }
     local disk_sectors=$(blockdev --getsz "$disk" 2>/dev/null || echo "0")
-    
-    if [[ $disk_sectors -eq 0 ]]; then
-        err "$(T "Disk boyutu okunamadi" "Cannot read disk size")"
-        return 1
-    fi
-    
+    [[ $disk_sectors -eq 0 ]] && { err "Disk boyutu okunamadi"; return 1; }
     local disk_bytes=$((disk_sectors * 512))
     local needed=$((20 * 1024 * 1024 * 1024))
-    
     if [[ $disk_bytes -lt $needed ]]; then
         local available_gb=$((disk_bytes / 1024 / 1024 / 1024))
-        err "$(T "Yeterli boş alan yok! Mevcut: ${available_gb}GB, Gerekli: 20GB" "Not enough space! Available: ${available_gb}GB, Required: 20GB")"
+        err "$(T "Yeterli alan yok! Mevcut: ${available_gb}GB, Gerekli: 20GB" "Not enough space! Available: ${available_gb}GB, Required: 20GB")"
         return 1
     fi
-    
     local available_gb=$((disk_bytes / 1024 / 1024 / 1024))
     log "$(T "Disk alanı: OK (${available_gb}GB)" "Disk space: OK (${available_gb}GB)")"
     return 0
@@ -124,12 +97,9 @@ check_disk_space() {
 
 check_partition_table() {
     local disk="$1"
-    
     if ! sgdisk --print "$disk" &>/dev/null; then
         if ! sgdisk --zap-all "$disk" >> "$LOG_FILE" 2>&1; then
-            ui_error "$(T "Hata" "Error")" "$(T \
-                "Disk temizlenemedi!\nBaşka işlem kullanıyor olabilir." \
-                "Cannot clean disk!\nAnother process may be using it.")"
+            ui_error "$(T "Hata" "Error")" "$(T "Disk temizlenemedi!" "Cannot clean disk!")"
             return 1
         fi
     fi
@@ -153,7 +123,7 @@ log "Language: $LANG_CHOICE"
 # 1. WELCOME
 # =============================================================================
 ui_info "$(T "Hosgeldiniz" "Welcome")" "$(T \
-"Arch Linux Kurulum Sihirbazi
+"Arch Linux Kurulum Sihirbazi v${SCRIPT_VERSION}
 
 Bu script kuracak:
 - LUKS2 (Argon2id) sifreleme
@@ -162,9 +132,10 @@ Bu script kuracak:
 - Pipewire ses
 - ZRAM swap
 - UFW firewall
+- Dotfiles: github.com/kerembsd/i3wm
 
 Log: $LOG_FILE" \
-"Arch Linux Installation Wizard
+"Arch Linux Installation Wizard v${SCRIPT_VERSION}
 
 This script will install:
 - LUKS2 (Argon2id) encryption
@@ -173,6 +144,7 @@ This script will install:
 - Pipewire audio
 - ZRAM swap
 - UFW firewall
+- Dotfiles: github.com/kerembsd/i3wm
 
 Log: $LOG_FILE")"
 
@@ -187,7 +159,6 @@ section "$(T "On Kontroller" "Pre-checks")"
 }
 
 log "$(T "Internet kontrol ediliyor..." "Checking internet...")"
-
 if ! ping -c1 -W3 archlinux.org &>/dev/null; then
     ui_error "$(T "Hata" "Error")" "$(T "Internet yok!" "No internet!")"
     exit 1
@@ -236,36 +207,18 @@ while true; do
     USER_NAME=$(ui_input \
         "$(T "Kullanici Adi" "Username")" \
         "$(T "Kucuk harf, rakam, _, -" "Lowercase, numbers, _, -")") || exit 0
-
-    [[ -z "$USER_NAME" ]] && {
-        ui_error "$(T "Hata" "Error")" "$(T "Bos olamaz!" "Cannot be empty!")"
-        continue
-    }
-
-    if [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-        log "User: $USER_NAME"
-        break
-    else
-        ui_error "$(T "Hata" "Error")" "$(T "Gecersiz format!" "Invalid format!")"
-    fi
+    [[ -z "$USER_NAME" ]] && { ui_error "$(T "Hata" "Error")" "$(T "Bos olamaz!" "Cannot be empty!")"; continue; }
+    [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]*$ ]] && { log "User: $USER_NAME"; break; }
+    ui_error "$(T "Hata" "Error")" "$(T "Gecersiz format!" "Invalid format!")"
 done
 
 while true; do
     HOST_NAME=$(ui_input \
         "$(T "Bilgisayar Adi" "Hostname")" \
         "$(T "Harf, rakam, -" "Letters, numbers, -")") || exit 0
-
-    [[ -z "$HOST_NAME" ]] && {
-        ui_error "$(T "Hata" "Error")" "$(T "Bos olamaz!" "Cannot be empty!")"
-        continue
-    }
-
-    if [[ "$HOST_NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
-        log "Hostname: $HOST_NAME"
-        break
-    else
-        ui_error "$(T "Hata" "Error")" "$(T "Gecersiz format!" "Invalid format!")"
-    fi
+    [[ -z "$HOST_NAME" ]] && { ui_error "$(T "Hata" "Error")" "$(T "Bos olamaz!" "Cannot be empty!")"; continue; }
+    [[ "$HOST_NAME" =~ ^[a-zA-Z0-9-]+$ ]] && { log "Hostname: $HOST_NAME"; break; }
+    ui_error "$(T "Hata" "Error")" "$(T "Gecersiz format!" "Invalid format!")"
 done
 
 # =============================================================================
@@ -275,11 +228,11 @@ section "$(T "Disk Sifreleme" "Disk Encryption")"
 
 check_pass_strength() {
     local pass="$1" score=0
-    [[ ${#pass} -ge 12 ]] && ((score++))
-    [[ ${#pass} -ge 16 ]] && ((score++))
-    [[ "$pass" =~ [A-Z] ]] && ((score++))
-    [[ "$pass" =~ [0-9] ]] && ((score++))
-    [[ "$pass" =~ [^a-zA-Z0-9] ]] && ((score++))
+    [[ ${#pass} -ge 12 ]] && ((score++)) || true
+    [[ ${#pass} -ge 16 ]] && ((score++)) || true
+    [[ "$pass" =~ [A-Z] ]] && ((score++)) || true
+    [[ "$pass" =~ [0-9] ]] && ((score++)) || true
+    [[ "$pass" =~ [^a-zA-Z0-9] ]] && ((score++)) || true
     echo "$score"
 }
 
@@ -287,33 +240,22 @@ while true; do
     LUKS_PASS=$(ui_password \
         "$(T "LUKS Sifresi" "LUKS Passphrase")" \
         "$(T "Disk sifreleme parolasi" "Disk encryption password")") || exit 0
-
-    [[ -z "$LUKS_PASS" ]] && {
-        ui_error "$(T "Hata" "Error")" "$(T "Bos olamaz!" "Cannot be empty!")"
-        continue
-    }
+    [[ -z "$LUKS_PASS" ]] && { ui_error "$(T "Hata" "Error")" "$(T "Bos olamaz!" "Cannot be empty!")"; continue; }
 
     LUKS_PASS2=$(ui_password \
         "$(T "LUKS Sifresi - Dogrula" "LUKS Passphrase - Confirm")" \
         "$(T "Tekrar girin" "Re-enter")") || exit 0
-
-    [[ "$LUKS_PASS" != "$LUKS_PASS2" ]] && {
-        ui_error "$(T "Hata" "Error")" "$(T "Eslesmiyor!" "Do not match!")"
-        continue
-    }
+    [[ "$LUKS_PASS" != "$LUKS_PASS2" ]] && { ui_error "$(T "Hata" "Error")" "$(T "Eslesmiyor!" "Do not match!")"; continue; }
 
     strength=$(check_pass_strength "$LUKS_PASS")
-    
     if [[ $strength -lt 2 ]]; then
-        if ! ui_question "$(T "Uyari" "Warning")" "$(T \
-            "Zayif sifre (${#LUKS_PASS} karakter)\n\nDevam etmek istiyor musun?" \
-            "Weak password (${#LUKS_PASS} characters)\n\nContinue anyway?")"; then
-            continue
-        fi
+        ui_question "$(T "Uyari" "Warning")" "$(T \
+            "Zayif sifre (${#LUKS_PASS} karakter)\nDevam etmek istiyor musun?" \
+            "Weak password (${#LUKS_PASS} chars)\nContinue anyway?")" || continue
     fi
     break
 done
-log "LUKS passphrase set (${#LUKS_PASS} characters)"
+log "LUKS passphrase set (${#LUKS_PASS} chars)"
 
 # =============================================================================
 # 6. SİSTEM AYARLARI
@@ -321,46 +263,32 @@ log "LUKS passphrase set (${#LUKS_PASS} characters)"
 section "$(T "Sistem Ayarlari" "System Settings")"
 
 USE_REFLECTOR="no"
-if ui_question "$(T "Reflector" "Reflector")" "$(T \
+ui_question "$(T "Reflector" "Reflector")" "$(T \
     "En hizli mirrorlar secilsin mi? (~30-60sn)" \
-    "Select fastest mirrors? (~30-60sec)")"; then
-    USE_REFLECTOR="yes"
-fi
+    "Select fastest mirrors? (~30-60sec)")" && USE_REFLECTOR="yes" || true
 log "Reflector: $USE_REFLECTOR"
 
-while true; do
-    GPU_CHOICE=$(ui_menu \
-        "$(T "GPU Surucusu" "GPU Driver")" \
-        "$(T "GPU secin:" "Select GPU:")" \
-        "1" "$(T "Intel iGPU" "Intel iGPU")" \
-        "2" "$(T "AMD GPU" "AMD GPU")" \
-        "3" "$(T "NVIDIA Proprietary" "NVIDIA Proprietary")" \
-        "4" "$(T "NVIDIA Open" "NVIDIA Open")" \
-        "5" "$(T "Optimus Proprietary" "Optimus Proprietary")" \
-        "6" "$(T "Optimus Open" "Optimus Open")" \
-        "7" "$(T "Virtual Machine" "Virtual Machine")") || exit 0
-
-    [[ -z "$GPU_CHOICE" ]] && continue
-    [[ "$GPU_CHOICE" =~ ^[1-7]$ ]] && break
-done
+GPU_CHOICE=$(ui_menu \
+    "$(T "GPU Surucusu" "GPU Driver")" \
+    "$(T "GPU secin:" "Select GPU:")" \
+    "1" "$(T "Intel iGPU"           "Intel iGPU")" \
+    "2" "$(T "AMD GPU"              "AMD GPU")" \
+    "3" "$(T "NVIDIA Proprietary"   "NVIDIA Proprietary")" \
+    "4" "$(T "NVIDIA Open"          "NVIDIA Open")" \
+    "5" "$(T "Optimus Proprietary"  "Optimus Proprietary")" \
+    "6" "$(T "Optimus Open"         "Optimus Open")" \
+    "7" "$(T "Virtual Machine"      "Virtual Machine")") || exit 0
+[[ -z "$GPU_CHOICE" ]] && exit 0
 log "GPU: $GPU_CHOICE"
 
-while true; do
-    TZ_REGION=$(ui_menu \
-        "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
-        "$(T "Bolge:" "Region:")" \
-        "Europe" "$(T "Europe" "Europe")" \
-        "America" "$(T "America" "America")" \
-        "Asia" "$(T "Asia" "Asia")" \
-        "Africa" "$(T "Africa" "Africa")" \
-        "Pacific" "$(T "Pacific" "Pacific")" \
-        "Atlantic" "$(T "Atlantic" "Atlantic")" \
-        "Indian" "$(T "Indian" "Indian")" \
-        "Arctic" "$(T "Arctic" "Arctic")") || exit 0
-
-    [[ -z "$TZ_REGION" ]] && continue
-    break
-done
+TZ_REGION=$(ui_menu \
+    "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
+    "$(T "Bolge:" "Region:")" \
+    "Europe"   "Europe"  "America" "America" \
+    "Asia"     "Asia"    "Africa"  "Africa" \
+    "Pacific"  "Pacific" "Atlantic" "Atlantic" \
+    "Indian"   "Indian"  "Arctic"  "Arctic") || exit 0
+[[ -z "$TZ_REGION" ]] && exit 0
 
 TZ_CITIES=()
 while IFS= read -r city; do
@@ -368,50 +296,34 @@ while IFS= read -r city; do
     TZ_CITIES+=("$city" "")
 done < <(timedatectl list-timezones 2>/dev/null | grep "^${TZ_REGION}/" | sed "s|${TZ_REGION}/||" | sort)
 
-[[ ${#TZ_CITIES[@]} -eq 0 ]] && {
-    ui_error "$(T "Hata" "Error")" "$(T "Sehir bulunamadi!" "No cities found!")"
-    exit 1
-}
+[[ ${#TZ_CITIES[@]} -eq 0 ]] && { ui_error "$(T "Hata" "Error")" "$(T "Sehir bulunamadi!" "No cities found!")"; exit 1; }
 
-while true; do
-    TIMEZONE_CITY=$(ui_menu \
-        "$(T "Zaman Dilimi - Sehir" "Timezone - City")" \
-        "$(T "Sehir:" "City:")" \
-        "${TZ_CITIES[@]}") || exit 0
-
-    [[ -z "$TIMEZONE_CITY" ]] && continue
-    break
-done
-
+TIMEZONE_CITY=$(ui_menu \
+    "$(T "Zaman Dilimi - Sehir" "Timezone - City")" \
+    "$(T "Sehir:" "City:")" \
+    "${TZ_CITIES[@]}") || exit 0
+[[ -z "$TIMEZONE_CITY" ]] && exit 0
 TIMEZONE="${TZ_REGION}/${TIMEZONE_CITY}"
 log "Timezone: $TIMEZONE"
 
-while true; do
-    LOCALE=$(ui_menu \
-        "$(T "Sistem Dili" "System Language")" \
-        "$(T "Dil:" "Language:")" \
-        "en_US" "$(T "English (US)" "English (US)")" \
-        "tr_TR" "$(T "Turkce" "Turkish")" \
-        "de_DE" "$(T "Deutsch" "German")" \
-        "fr_FR" "$(T "Francais" "French")") || exit 0
-
-    [[ -z "$LOCALE" ]] && continue
-    break
-done
+LOCALE=$(ui_menu \
+    "$(T "Sistem Dili" "System Language")" \
+    "$(T "Dil:" "Language:")" \
+    "en_US" "English (US)" \
+    "tr_TR" "Turkce" \
+    "de_DE" "Deutsch" \
+    "fr_FR" "Francais") || exit 0
+[[ -z "$LOCALE" ]] && exit 0
 log "Locale: ${LOCALE}.UTF-8"
 
-while true; do
-    ZRAM_SIZE=$(ui_menu \
-        "$(T "ZRAM Boyutu" "ZRAM Size")" \
-        "$(T "Boyut:" "Size:")" \
-        "2048" "$(T "2 GB" "2 GB")" \
-        "4096" "$(T "4 GB (onerilen)" "4 GB (recommended)")" \
-        "6144" "$(T "6 GB" "6 GB")" \
-        "8192" "$(T "8 GB" "8 GB")") || exit 0
-
-    [[ -z "$ZRAM_SIZE" ]] && continue
-    break
-done
+ZRAM_SIZE=$(ui_menu \
+    "$(T "ZRAM Boyutu" "ZRAM Size")" \
+    "$(T "Boyut:" "Size:")" \
+    "2048" "2 GB" \
+    "4096" "$(T "4 GB (onerilen)" "4 GB (recommended)")" \
+    "6144" "6 GB" \
+    "8192" "8 GB") || exit 0
+[[ -z "$ZRAM_SIZE" ]] && exit 0
 log "ZRAM: ${ZRAM_SIZE}MB"
 
 # =============================================================================
@@ -421,39 +333,35 @@ GPU_LABELS=([1]="Intel iGPU" [2]="AMD GPU" [3]="NVIDIA Proprietary"
             [4]="NVIDIA Open" [5]="Optimus Proprietary"
             [6]="Optimus Open" [7]="Virtual Machine")
 
-if ! ui_question "$(T "Onay" "Confirmation")" "$(T \
+ui_question "$(T "Onay" "Confirmation")" "$(T \
 "AYARLAR:
 
-Disk: $DISK
+Disk     : $DISK
 Kullanici: $USER_NAME
-Hostname: $HOST_NAME
-GPU: ${GPU_LABELS[$GPU_CHOICE]}
-Timezone: $TIMEZONE
-Locale: ${LOCALE}.UTF-8
-ZRAM: ${ZRAM_SIZE}MB
-LUKS Sifre: ${#LUKS_PASS} karakter
+Hostname : $HOST_NAME
+GPU      : ${GPU_LABELS[$GPU_CHOICE]}
+Timezone : $TIMEZONE
+Locale   : ${LOCALE}.UTF-8
+ZRAM     : ${ZRAM_SIZE}MB
+Dotfiles : github.com/kerembsd/i3wm
 
 DEVAM?" \
 "SETTINGS:
 
-Disk: $DISK
-User: $USER_NAME
-Hostname: $HOST_NAME
-GPU: ${GPU_LABELS[$GPU_CHOICE]}
-Timezone: $TIMEZONE
-Locale: ${LOCALE}.UTF-8
-ZRAM: ${ZRAM_SIZE}MB
-LUKS Password: ${#LUKS_PASS} characters
+Disk     : $DISK
+User     : $USER_NAME
+Hostname : $HOST_NAME
+GPU      : ${GPU_LABELS[$GPU_CHOICE]}
+Timezone : $TIMEZONE
+Locale   : ${LOCALE}.UTF-8
+ZRAM     : ${ZRAM_SIZE}MB
+Dotfiles : github.com/kerembsd/i3wm
 
-CONTINUE?")"; then
-    exit 0
-fi
+CONTINUE?")" || exit 0
 
-if ! ui_question "$(T "SON UYARI" "FINAL WARNING")" "$(T \
-    "$DISK UZERINDEKI TUM VERI SILINECAK!\n\nDevam?" \
-    "ALL DATA ON $DISK WILL BE ERASED!\n\nContinue?")"; then
-    exit 0
-fi
+ui_question "$(T "SON UYARI" "FINAL WARNING")" "$(T \
+    "$DISK UZERINDEKI TUM VERI SILINECEK!\n\nDevam?" \
+    "ALL DATA ON $DISK WILL BE ERASED!\n\nContinue?")" || exit 0
 
 # =============================================================================
 # 8. GPU PAKET LİSTESİ
@@ -469,44 +377,28 @@ case "$GPU_CHOICE" in
 esac
 
 if [[ "$DISK" =~ (nvme|mmcblk) ]]; then
-    EFI_PART="${DISK}p1"
-    ROOT_PART="${DISK}p2"
+    EFI_PART="${DISK}p1"; ROOT_PART="${DISK}p2"
 else
-    EFI_PART="${DISK}1"
-    ROOT_PART="${DISK}2"
+    EFI_PART="${DISK}1";  ROOT_PART="${DISK}2"
 fi
 
 # =============================================================================
-# 9. KURULUM BAŞLADI
+# 9. KURULUM
 # =============================================================================
 clear
 section "$(T "KURULUM BASLADI" "INSTALLATION STARTED")"
 
-log "$(T "Disk kontrolleri yapiliyor..." "Checking disk...")"
-check_disk_space "$DISK" || exit 1
+log "$(T "Disk kontrol ediliyor..." "Checking disk...")"
+check_disk_space "$DISK"   || exit 1
 check_partition_table "$DISK" || exit 1
 
 log "$(T "NTP senkronizasyonu..." "NTP sync...")"
-timedatectl set-ntp true >> "$LOG_FILE" 2>&1 || {
-    warn "$(T "NTP basarisiz" "NTP failed")"
-}
+timedatectl set-ntp true >> "$LOG_FILE" 2>&1 || warn "NTP basarisiz"
 
 log "$(T "Disk bolümlendiriliyor..." "Partitioning...")"
-sgdisk --zap-all "$DISK" >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "Disk temizleme başarısız!" "Disk cleanup failed!")"
-    exit 1
-}
-
-sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI" "$DISK" >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "EFI partition olusturulamadi!" "EFI partition creation failed!")"
-    exit 1
-}
-
-sgdisk -n 2:0:0 -t 2:8309 -c 2:"LUKS" "$DISK" >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "LUKS partition olusturulamadi!" "LUKS partition creation failed!")"
-    exit 1
-}
-
+sgdisk --zap-all "$DISK" >> "$LOG_FILE" 2>&1
+sgdisk -n 1:0:+2G -t 1:ef00 -c 1:"EFI"  "$DISK" >> "$LOG_FILE" 2>&1
+sgdisk -n 2:0:0   -t 2:8309 -c 2:"LUKS" "$DISK" >> "$LOG_FILE" 2>&1
 partprobe "$DISK" >> "$LOG_FILE" 2>&1 || true
 sleep 1
 
@@ -515,85 +407,44 @@ echo -n "$LUKS_PASS" | cryptsetup luksFormat \
     --type luks2 --cipher aes-xts-plain64 \
     --key-size 512 --hash sha512 --pbkdf argon2id \
     --batch-mode --key-file=- \
-    "$ROOT_PART" >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "LUKS2 sifreleme başarısız!" "LUKS2 encryption failed!")"
-    exit 1
-}
+    "$ROOT_PART" >> "$LOG_FILE" 2>&1
 
-echo -n "$LUKS_PASS" | cryptsetup open --key-file=- "$ROOT_PART" cryptroot >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "LUKS2 acma başarısız!" "LUKS2 open failed!")"
-    exit 1
-}
-
+echo -n "$LUKS_PASS" | cryptsetup open --key-file=- "$ROOT_PART" cryptroot >> "$LOG_FILE" 2>&1
 unset LUKS_PASS LUKS_PASS2
 
 REAL_LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
 log "LUKS UUID: $REAL_LUKS_UUID"
 
 log "$(T "Btrfs yapilandiriliyor..." "Configuring Btrfs...")"
-mkfs.btrfs -f -L "arch_root" /dev/mapper/cryptroot >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "Btrfs olusturma başarısız!" "Btrfs creation failed!")"
-    exit 1
-}
-
-mount /dev/mapper/cryptroot /mnt >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "Btrfs baglantisi başarısız!" "Btrfs mount failed!")"
-    exit 1
-}
+mkfs.btrfs -f -L "arch_root" /dev/mapper/cryptroot >> "$LOG_FILE" 2>&1
+mount /dev/mapper/cryptroot /mnt
 
 for sub in @ @home @log @pkg @snapshots @tmp; do
-    if ! btrfs subvolume create "/mnt/$sub" >> "$LOG_FILE" 2>&1; then
-        umount /mnt
-        ui_error "$(T "Hata" "Error")" "$(T "Subvolume $sub olusturulamadi!" "Cannot create subvolume $sub!")"
-        exit 1
-    fi
+    btrfs subvolume create "/mnt/$sub" >> "$LOG_FILE" 2>&1
 done
+umount /mnt
 
-umount /mnt >> "$LOG_FILE" 2>&1
-
-mount -o "${MOUNT_OPTS},subvol=@" /dev/mapper/cryptroot /mnt >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "Root mount başarısız!" "Root mount failed!")"
-    exit 1
-}
-
+mount -o "${MOUNT_OPTS},subvol=@" /dev/mapper/cryptroot /mnt
 mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,tmp,boot}
-
-mount -o "${MOUNT_OPTS},subvol=@home" /dev/mapper/cryptroot /mnt/home >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "@home mount başarısız!" "@home mount failed!")"
-    exit 1
-}
-
-mount -o "${MOUNT_OPTS},subvol=@log" /dev/mapper/cryptroot /mnt/var/log >> "$LOG_FILE" 2>&1 || true
-mount -o "${MOUNT_OPTS},subvol=@pkg" /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg >> "$LOG_FILE" 2>&1 || true
-mount -o "${MOUNT_OPTS},subvol=@snapshots" /dev/mapper/cryptroot /mnt/.snapshots >> "$LOG_FILE" 2>&1 || true
-mount -o "${MOUNT_OPTS},subvol=@tmp,nosuid,nodev" /dev/mapper/cryptroot /mnt/tmp >> "$LOG_FILE" 2>&1 || true
-
-mkfs.fat -F32 -n "EFI" "$EFI_PART" >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "EFI partition olusturulamadi!" "EFI partition creation failed!")"
-    exit 1
-}
-
-mount "$EFI_PART" /mnt/boot >> "$LOG_FILE" 2>&1 || {
-    ui_error "$(T "Hata" "Error")" "$(T "EFI mount başarısız!" "EFI mount failed!")"
-    exit 1
-}
+mount -o "${MOUNT_OPTS},subvol=@home"      /dev/mapper/cryptroot /mnt/home
+mount -o "${MOUNT_OPTS},subvol=@log"       /dev/mapper/cryptroot /mnt/var/log
+mount -o "${MOUNT_OPTS},subvol=@pkg"       /dev/mapper/cryptroot /mnt/var/cache/pacman/pkg
+mount -o "${MOUNT_OPTS},subvol=@snapshots" /dev/mapper/cryptroot /mnt/.snapshots
+mount -o "${MOUNT_OPTS},subvol=@tmp,nosuid,nodev" /dev/mapper/cryptroot /mnt/tmp
+mkfs.fat -F32 -n "EFI" "$EFI_PART" >> "$LOG_FILE" 2>&1
+mount "$EFI_PART" /mnt/boot
 
 log "$(T "Mirrorlist hazirlaniyor..." "Preparing mirrorlist...")"
-pacman -Sy --noconfirm archlinux-keyring >> "$LOG_FILE" 2>&1 || {
-    warn "$(T "Keyring basarisiz" "Keyring failed")"
-}
+pacman -Sy --noconfirm archlinux-keyring >> "$LOG_FILE" 2>&1 || warn "Keyring basarisiz"
 
 if [[ "$USE_REFLECTOR" == "yes" ]]; then
     if pacman -S --noconfirm reflector >> "$LOG_FILE" 2>&1; then
-        if reflector --country Turkey,Germany,Netherlands,France \
+        reflector --country Turkey,Germany,Netherlands,France \
             --protocol https --age 12 --sort rate --fastest 10 \
-            --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1; then
-            log "$(T "Reflector: OK" "Reflector: OK")"
-        else
-            warn "$(T "Reflector başarısız, varsayılan mirrorlar kullanılıyor" "Reflector failed, using default mirrors")"
-        fi
+            --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1 \
+            && log "Reflector: OK" || warn "Reflector basarisiz"
     else
-        warn "$(T "Reflector kurulamadi, varsayılan mirrorlar kullanılıyor" "Reflector installation failed, using default mirrors")"
+        warn "Reflector kurulamadi"
     fi
 fi
 
@@ -607,6 +458,7 @@ GPU_CHOICE="${GPU_CHOICE}"
 CPU_UCODE="${CPU_UCODE}"
 TIMEZONE="${TIMEZONE}"
 LOCALE="${LOCALE}"
+DOTFILES_REPO="${DOTFILES_REPO}"
 VARS
 
 log "$(T "Chroot scripti yaziliyor..." "Writing chroot script...")"
@@ -616,7 +468,8 @@ cat > /mnt/chroot.sh << 'CHROOT_EOF'
 set -euo pipefail
 source /chroot_vars.sh
 
-log() { echo "[✓] $*"; }
+log()     { echo "[✓] $*"; }
+warn()    { echo "[!] $*"; }
 section() { echo ""; echo "== $* =="; echo ""; }
 
 section "Locale & Timezone"
@@ -696,9 +549,9 @@ fs-type = swap
 ZRAM
 
 section "UFW"
-sed -i 's/^DEFAULT_INPUT_POLICY=.*/DEFAULT_INPUT_POLICY="DROP"/' /etc/default/ufw
+sed -i 's/^DEFAULT_INPUT_POLICY=.*/DEFAULT_INPUT_POLICY="DROP"/'     /etc/default/ufw
 sed -i 's/^DEFAULT_OUTPUT_POLICY=.*/DEFAULT_OUTPUT_POLICY="ACCEPT"/' /etc/default/ufw
-sed -i 's/^ENABLED=.*/ENABLED=yes/' /etc/ufw/ufw.conf
+sed -i 's/^ENABLED=.*/ENABLED=yes/'                                  /etc/ufw/ufw.conf
 systemctl enable ufw
 
 section "Snapper"
@@ -738,55 +591,70 @@ chmod 750 /.snapshots
 
 section "Kullanici: $USER_NAME"
 useradd -m -G wheel,video,audio,storage,optical,network -s /bin/bash "$USER_NAME"
-
-# TTY'ye bağlı olup olmadığını kontrol et (interaktif mi?)
 if [[ -t 0 ]]; then
     echo "==> Root sifresi:"
     passwd
     echo "==> ${USER_NAME} sifresi:"
     passwd "$USER_NAME"
 else
-    # Non-interactive: Geçici şifreler ayarla
     echo "root:arch123" | chpasswd
     echo "${USER_NAME}:arch123" | chpasswd
-    log "Temporary passwords set (root:arch123, ${USER_NAME}:arch123)"
+    warn "Gecici sifreler ayarlandi (arch123) — ilk giriste degistir!"
 fi
-
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-section ".bashrc"
-cat > "/home/${USER_NAME}/.bashrc" << 'BASHRC'
-# ~/.bashrc
+section "Dotfiles: github.com/kerembsd/i3wm"
+DOTFILES_TMP="/tmp/dotfiles_clone"
+if git clone --depth=1 "${DOTFILES_REPO}" "$DOTFILES_TMP" 2>/dev/null; then
+    # .config klasorlerini kopyala
+    if [[ -d "${DOTFILES_TMP}/.config" ]]; then
+        mkdir -p "/home/${USER_NAME}/.config"
+        cp -r "${DOTFILES_TMP}/.config/." "/home/${USER_NAME}/.config/"
+        log ".config kopyalandi"
+    fi
 
+    # Pictures / wallpaper
+    if [[ -d "${DOTFILES_TMP}/Pictures" ]]; then
+        mkdir -p "/home/${USER_NAME}/Pictures"
+        cp -r "${DOTFILES_TMP}/Pictures/." "/home/${USER_NAME}/Pictures/"
+        log "Pictures kopyalandi"
+    fi
+
+    # .bashrc
+    if [[ -f "${DOTFILES_TMP}/.bashrc" ]]; then
+        cp "${DOTFILES_TMP}/.bashrc" "/home/${USER_NAME}/.bashrc"
+        log ".bashrc kopyalandi"
+    fi
+
+    # .nanorc
+    if [[ -f "${DOTFILES_TMP}/.nanorc" ]]; then
+        cp "${DOTFILES_TMP}/.nanorc" "/home/${USER_NAME}/.nanorc"
+        log ".nanorc kopyalandi"
+    fi
+
+    rm -rf "$DOTFILES_TMP"
+    log "Dotfiles basariyla yuklendi"
+else
+    warn "Dotfiles clone basarisiz! Fallback configler kullanilacak."
+fi
+
+# Dotfiles'dan gelmediyse fallback .bashrc yaz
+if [[ ! -f "/home/${USER_NAME}/.bashrc" ]]; then
+    cat > "/home/${USER_NAME}/.bashrc" << 'BASHRC'
 [[ $- != *i* ]] && return
-
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
-
 PS1='[\u@\h \W]\$ '
-
 HISTSIZE=1000
 HISTFILESIZE=2000
 HISTCONTROL=ignoredups:ignorespace
-
-# TTY1'de otomatik startx başlat
-if [[ -z "$DISPLAY" ]] && [[ "$XDG_VTNR" == "1" ]]; then
-    exec startx
-fi
 BASHRC
-
-# GPU alias'ı ekle (Optimus için)
-if [[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]]; then
-    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
+    log "Fallback .bashrc yazildi"
 fi
 
-section ".bash_profile"
-cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
-[[ -f ~/.bashrc ]] && . ~/.bashrc
-BASH_P
-
-section ".xinitrc"
-cat > "/home/${USER_NAME}/.xinitrc" << 'XINIT'
+# Dotfiles'dan gelmediyse fallback .xinitrc yaz
+if [[ ! -f "/home/${USER_NAME}/.xinitrc" ]]; then
+    cat > "/home/${USER_NAME}/.xinitrc" << 'XINIT'
 #!/bin/sh
 setxkbmap tr &
 picom --daemon &
@@ -795,80 +663,63 @@ nm-applet &
 [ -f "$HOME/Pictures/wallpaper.jpg" ] && feh --bg-scale "$HOME/Pictures/wallpaper.jpg" &
 exec i3
 XINIT
-
-chmod +x "/home/${USER_NAME}/.xinitrc"
-
-# VirtualBox için özel ayar
-if [[ "$GPU_CHOICE" == "7" ]]; then
-    systemctl enable vboxservice 2>/dev/null || true
+    chmod +x "/home/${USER_NAME}/.xinitrc"
+    log "Fallback .xinitrc yazildi"
 fi
 
-section "i3 Config"
-mkdir -p "/home/${USER_NAME}/.config/i3"
-cat > "/home/${USER_NAME}/.config/i3/config" << 'I3CONF'
+# .bash_profile — TTY1'de otomatik startx
+cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
+[[ -f ~/.bashrc ]] && . ~/.bashrc
+if [[ -z "$DISPLAY" ]] && [[ "$(tty)" == "/dev/tty1" ]]; then
+    exec startx
+fi
+BASH_P
+
+# Optimus alias
+[[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]] && \
+    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
+
+# VirtualBox
+[[ "$GPU_CHOICE" == "7" ]] && systemctl enable vboxservice 2>/dev/null || true
+
+# Dotfiles'dan i3 config gelmediyse fallback
+if [[ ! -f "/home/${USER_NAME}/.config/i3/config" ]]; then
+    mkdir -p "/home/${USER_NAME}/.config/i3"
+    cat > "/home/${USER_NAME}/.config/i3/config" << 'I3CONF'
 set $mod Mod4
 font pango:DejaVu Sans Mono 10
-
 gaps inner 8
 gaps outer 4
 smart_gaps on
 smart_borders on
 default_border pixel 2
 default_floating_border pixel 2
-
-client.focused          #4C7899 #285577 #ffffff #2e9ef4 #285577
-client.unfocused        #333333 #222222 #888888 #292d2e #222222
-client.urgent           #2f343a #900000 #ffffff #900000 #900000
-
 floating_modifier $mod
 bindsym $mod+Return exec alacritty
 bindsym $mod+d      exec dmenu_run
 bindsym $mod+Shift+q kill
-
 bindsym $mod+h focus left
 bindsym $mod+j focus down
 bindsym $mod+k focus up
 bindsym $mod+l focus right
-bindsym $mod+Left  focus left
-bindsym $mod+Down  focus down
-bindsym $mod+Up    focus up
-bindsym $mod+Right focus right
-
 bindsym $mod+Shift+h move left
 bindsym $mod+Shift+j move down
 bindsym $mod+Shift+k move up
 bindsym $mod+Shift+l move right
-bindsym $mod+Shift+Left  move left
-bindsym $mod+Shift+Down  move down
-bindsym $mod+Shift+Up    move up
-bindsym $mod+Shift+Right move right
-
+bindsym $mod+e layout toggle split
+bindsym $mod+f fullscreen toggle
+bindsym $mod+Shift+space floating toggle
+bindsym $mod+r mode "resize"
 mode "resize" {
     bindsym h resize shrink width  10 px or 10 ppt
     bindsym j resize grow   height 10 px or 10 ppt
     bindsym k resize shrink height 10 px or 10 ppt
     bindsym l resize grow   width  10 px or 10 ppt
-    bindsym Left  resize shrink width  10 px or 10 ppt
-    bindsym Down  resize grow   height 10 px or 10 ppt
-    bindsym Up    resize shrink height 10 px or 10 ppt
-    bindsym Right resize grow   width  10 px or 10 ppt
     bindsym Return mode "default"
     bindsym Escape mode "default"
 }
-bindsym $mod+r mode "resize"
-
-bindsym $mod+b split h
-bindsym $mod+v split v
-bindsym $mod+e layout toggle split
-bindsym $mod+s layout stacking
-bindsym $mod+w layout tabbed
-bindsym $mod+f fullscreen toggle
-bindsym $mod+Shift+space floating toggle
-bindsym $mod+space       focus mode_toggle
-
 set $ws1 "1"; set $ws2 "2"; set $ws3 "3"; set $ws4 "4"; set $ws5 "5"
 set $ws6 "6"; set $ws7 "7"; set $ws8 "8"; set $ws9 "9"; set $ws10 "10"
-
 bindsym $mod+1 workspace $ws1
 bindsym $mod+2 workspace $ws2
 bindsym $mod+3 workspace $ws3
@@ -879,7 +730,6 @@ bindsym $mod+7 workspace $ws7
 bindsym $mod+8 workspace $ws8
 bindsym $mod+9 workspace $ws9
 bindsym $mod+0 workspace $ws10
-
 bindsym $mod+Shift+1 move container to workspace $ws1
 bindsym $mod+Shift+2 move container to workspace $ws2
 bindsym $mod+Shift+3 move container to workspace $ws3
@@ -890,21 +740,10 @@ bindsym $mod+Shift+7 move container to workspace $ws7
 bindsym $mod+Shift+8 move container to workspace $ws8
 bindsym $mod+Shift+9 move container to workspace $ws9
 bindsym $mod+Shift+0 move container to workspace $ws10
-
-for_window [window_role="pop-up"]         floating enable
-for_window [window_role="bubble"]         floating enable
-for_window [window_role="dialog"]         floating enable
-for_window [window_type="dialog"]         floating enable
-for_window [class="Pavucontrol"]          floating enable
-for_window [class="Nm-connection-editor"] floating enable
-for_window [class="Blueman-manager"]      floating enable
-for_window [title="File Transfer*"]       floating enable
-
 bindsym XF86AudioRaiseVolume exec pactl set-sink-volume @DEFAULT_SINK@ +5%
 bindsym XF86AudioLowerVolume exec pactl set-sink-volume @DEFAULT_SINK@ -5%
 bindsym XF86AudioMute        exec pactl set-sink-mute   @DEFAULT_SINK@ toggle
 bindsym XF86AudioMicMute     exec pactl set-source-mute @DEFAULT_SOURCE@ toggle
-
 bindsym $mod+ctrl+l exec i3lock -c 1a1a2e
 bindsym $mod+Shift+c reload
 bindsym $mod+Shift+r restart
@@ -913,42 +752,46 @@ bindsym $mod+Shift+e exec i3-nagbar -t warning \
     -B 'Evet' 'i3-msg exit' \
     -B 'Yeniden Basla' 'systemctl reboot' \
     -B 'Kapat' 'systemctl poweroff'
-
 bar {
     status_command i3status
     position bottom
     tray_output primary
-    colors {
-        background #1a1a2e
-        statusline #e0e0e0
-        separator  #444444
-        focused_workspace  #4C7899 #285577 #ffffff
-        active_workspace   #333333 #222222 #ffffff
-        inactive_workspace #333333 #222222 #888888
-        urgent_workspace   #900000 #900000 #ffffff
-    }
 }
 I3CONF
+    log "Fallback i3 config yazildi"
+fi
 
-chown -R "${USER_NAME}:${USER_NAME}" \
-    "/home/${USER_NAME}/.xinitrc" \
-    "/home/${USER_NAME}/.bash_profile" \
-    "/home/${USER_NAME}/.bashrc" \
-    "/home/${USER_NAME}/.config"
+# Tum dosyalarin sahibini ayarla
+chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/"
 
 section "Servisler"
 systemctl enable NetworkManager bluetooth \
     snapper-timeline.timer snapper-cleanup.timer
 
-# Pipewire'ı global olarak enable et
-systemctl --global enable pipewire wireplumber 2>/dev/null || true
+# Pipewire user servisleri (symlink yontemi — chroot'ta systemctl --user calismiyor)
+WANTS_DIR="/home/${USER_NAME}/.config/systemd/user/default.target.wants"
+mkdir -p "$WANTS_DIR"
+for svc in pipewire.service pipewire-pulse.service wireplumber.service; do
+    ln -sf "/usr/lib/systemd/user/${svc}" "${WANTS_DIR}/${svc}"
+done
+chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config/systemd"
+log "Pipewire user servisleri etkinlestirildi"
 
-# NVIDIA suspend/resume servisleri (varsa)
-if systemctl list-unit-files | grep -q nvidia-suspend; then
-    systemctl enable nvidia-suspend nvidia-resume nvidia-hibernate nvidia-resume-swap 2>/dev/null || true
+# NVIDIA suspend servisleri
+if [[ "$GPU_CHOICE" =~ ^[3456]$ ]]; then
+    systemctl enable nvidia-suspend nvidia-resume nvidia-hibernate 2>/dev/null || true
 fi
 
-log "Kurulum tamamlandi."
+section "Yay (AUR)"
+su - "$USER_NAME" -c '
+    export DISPLAY=""
+    export XAUTHORITY=""
+    git clone https://aur.archlinux.org/yay.git /tmp/yay_build
+    cd /tmp/yay_build && makepkg -si --noconfirm
+    rm -rf /tmp/yay_build
+' && log "Yay kuruldu" || warn "Yay kurulamadi (manuel kurabilirsiniz)"
+
+log "Chroot tamamlandi."
 CHROOT_EOF
 
 chmod +x /mnt/chroot.sh
@@ -958,8 +801,7 @@ chmod +x /mnt/chroot.sh
 # =============================================================================
 clear
 section "$(T "Paketler Kuruluyor" "Installing Packages")"
-
-echo -e "${CYAN}$(T "Pacstrap başlatılıyor... Lütfen bekleyin." "Pacstrap starting... Please wait.")${NC}"
+echo -e "${CYAN}$(T "Pacstrap baslatiliyor..." "Starting pacstrap...")${NC}"
 echo ""
 
 declare -a PACKAGES=(
@@ -978,28 +820,17 @@ declare -a PACKAGES=(
     "ttf-dejavu" "ttf-liberation" "noto-fonts"
     "man-db" "man-pages"
 )
-
-for pkg in $GPU_PKGS; do
-    PACKAGES+=("$pkg")
-done
+for pkg in $GPU_PKGS; do PACKAGES+=("$pkg"); done
 
 if timeout 1800 pacstrap /mnt "${PACKAGES[@]}" 2>&1 | tee -a "$LOG_FILE"; then
-    echo ""
-    log "$(T "Paketler basariyla kuruldu" "Packages installed successfully")"
+    log "$(T "Paketler kuruldu" "Packages installed")"
 else
-    echo ""
-    ui_error "$(T "Hata" "Error")" "$(T \
-        "Paket kurulumu başarısız!\n\nLog: $LOG_FILE" \
-        "Package installation failed!\n\nLog: $LOG_FILE")"
+    ui_error "$(T "Hata" "Error")" "$(T "Paket kurulumu basarisiz!\nLog: $LOG_FILE" "Package installation failed!\nLog: $LOG_FILE")"
     exit 1
 fi
 
 log "$(T "fstab olusturuluyor..." "Creating fstab...")"
-genfstab -U /mnt >> /mnt/etc/fstab || {
-    ui_error "$(T "Hata" "Error")" "$(T "fstab olusturulamadi!" "Cannot create fstab!")"
-    exit 1
-}
-
+genfstab -U /mnt >> /mnt/etc/fstab
 cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist || true
 
 # =============================================================================
@@ -1007,90 +838,96 @@ cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist || true
 # =============================================================================
 clear
 section "$(T "Sistem Yapilandirmasi" "System Configuration")"
-echo "$(T "Root ve kullanici sifreleri sorulacak (veya geçici şifreler ayarlanacak)..." "Root and user passwords will be prompted (or temporary passwords will be set)...")"
+echo "$(T "Sifreler sorulacak..." "Passwords will be prompted...")"
 echo ""
 
 if ! arch-chroot /mnt /chroot.sh; then
-    ui_error "$(T "Hata" "Error")" "$(T \
-        "Chroot konfigürasyonu başarısız!\n\nLog: $LOG_FILE" \
-        "Chroot configuration failed!\n\nLog: $LOG_FILE")"
+    ui_error "$(T "Hata" "Error")" "$(T "Chroot basarisiz!\nLog: $LOG_FILE" "Chroot failed!\nLog: $LOG_FILE")"
     exit 1
 fi
 
 rm -f /mnt/chroot.sh /mnt/chroot_vars.sh
 
+# Log dosyasini sisteme kopyala
+cp "$LOG_FILE" "/mnt/home/${USER_NAME}/arch-install.log" 2>/dev/null || true
+
 # =============================================================================
 # 12. EK PAKETLER
 # =============================================================================
 if ui_question "$(T "Ek Paketler" "Extra Packages")" "$(T \
-    "Kurulum tamamlandi!\n\nEk paket kurmak ister misiniz?" \
-    "Installation complete!\n\nWould you like to install extra packages?")"; then
+    "Kurulum tamamlandi!\nEk paket kurmak ister misiniz?" \
+    "Installation complete!\nInstall extra packages?")"; then
 
     while true; do
         EXTRA_INPUT=$(ui_input \
             "$(T "Ek Paketler" "Extra Packages")" \
-            "$(T "Paket isimlerini girin (boslukla ayirin):\nornek: firefox neovim htop" \
-                "Enter package names (space-separated):\nexample: firefox neovim htop")") || break
+            "$(T "Paket isimleri (boslukla ayirin):\nornek: firefox neovim htop\n\nBos birak = atla" \
+                "Package names (space-separated):\nexample: firefox neovim htop\n\nLeave empty = skip")") || break
 
         [[ -z "$EXTRA_INPUT" ]] && break
 
-        if ui_question "$(T "Onay" "Confirmation")" "$(T \
-            "Kurulacak: $EXTRA_INPUT\n\nDevam?" \
-            "Install: $EXTRA_INPUT\n\nContinue?")"; then
+        ui_question "$(T "Onay" "Confirm")" "$(T \
+            "Kurulacak:\n$EXTRA_INPUT\n\nDevam?" \
+            "Will install:\n$EXTRA_INPUT\n\nContinue?")" || continue
 
-            clear
-            echo "$(T "Paketler kuruluyor..." "Installing packages...")"
-            if ! arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT | tee -a "$LOG_FILE"; then
-                ui_error "$(T "Hata" "Error")" "$(T \
-                    "Bazi paketler kurulamadi!" \
-                    "Some packages failed to install!")"
-            fi
+        clear
+        arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT 2>&1 | tee -a "$LOG_FILE" \
+            && ui_info "$(T "Tamam" "Done")" "$(T "Paketler kuruldu!" "Packages installed!")" \
+            || ui_error "$(T "Hata" "Error")" "$(T "Bazi paketler kurulamadi!" "Some packages failed!")"
 
-            if ! ui_question "$(T "Devam" "Continue")" "$(T "Baska paket kurmak ister misiniz?" "Install more packages?")"; then
-                break
-            fi
-        fi
+        ui_question "$(T "Devam" "Continue")" "$(T \
+            "Baska paket kurmak ister misiniz?" \
+            "Install more packages?")" || break
     done
 fi
 
 # =============================================================================
-# 13. BİTİŞ
+# 13. REBOOT
 # =============================================================================
 clear
-echo ""
 ui_info "$(T "KURULUM TAMAMLANDI" "INSTALLATION COMPLETE")" "$(T \
-"Arch Linux basariyla kuruldu!
+"Arch Linux basariyla kuruldu! v${SCRIPT_VERSION}
 
 KURULULAR:
 - LUKS2 (Argon2id) sifreleme
 - Btrfs + Snapper
 - i3wm + gaps
 - Pipewire ses
-- ZRAM ${ZRAM_SIZE}MB swap
+- ZRAM ${ZRAM_SIZE}MB
 - UFW firewall
+- Yay (AUR helper)
+- Dotfiles: github.com/kerembsd/i3wm
 
 NOTLAR:
-- Log: $LOG_FILE
-- Yeniden baslatmak: umount -R /mnt && reboot
-- Geçici şifreler kullanıldıysa ilk login'de değiştir
+- Gecici sifre kullanildiysa: arch123
+- Log: ~/arch-install.log
 - Ses sorunu: systemctl --user enable --now pipewire
-- Optimus dGPU: nrun <uygulama>" \
-"Arch Linux installed successfully!
+
+Yeniden baslatmak icin: umount -R /mnt && reboot" \
+"Arch Linux installed successfully! v${SCRIPT_VERSION}
 
 INSTALLED:
 - LUKS2 (Argon2id) encryption
 - Btrfs + Snapper
 - i3wm + gaps
 - Pipewire audio
-- ZRAM ${ZRAM_SIZE}MB swap
+- ZRAM ${ZRAM_SIZE}MB
 - UFW firewall
+- Yay (AUR helper)
+- Dotfiles: github.com/kerembsd/i3wm
 
 NOTES:
-- Log: $LOG_FILE
-- Reboot: umount -R /mnt && reboot
-- If temporary passwords were used, change them on first login
+- If temp password was used: arch123
+- Log: ~/arch-install.log
 - Audio issue: systemctl --user enable --now pipewire
-- Optimus dGPU: nrun <app>")"
+
+To reboot: umount -R /mnt && reboot")"
+
+if ui_question "$(T "Yeniden Baslat" "Reboot")" "$(T \
+    "Simdi yeniden baslatilsin mi?" \
+    "Reboot now?")"; then
+    umount -R /mnt 2>/dev/null || true
+    reboot
+fi
 
 log "$(T "Kurulum tamamlandi!" "Installation completed!")"
-echo ""

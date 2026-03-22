@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# ArchInstall TUI v4.6 — LUKS2 + Btrfs + i3wm + Pipewire (FIXED & STABLE)
+# ArchInstall TUI v4.8 — LUKS2 + Btrfs + i3wm + Pipewire (PRODUCTION READY)
 # =============================================================================
 set -euo pipefail
 
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
-readonly SCRIPT_VERSION="4.6"
+readonly SCRIPT_VERSION="4.8"
 
 echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
@@ -26,7 +26,7 @@ LANG_CHOICE="tr"
 T() { [[ "$LANG_CHOICE" == "tr" ]] && echo "$1" || echo "$2"; }
 
 # =============================================================================
-# CLEANUP TRAP (KRİTİK)
+# CLEANUP TRAP
 # =============================================================================
 cleanup_on_error() {
     local code=$?
@@ -35,7 +35,6 @@ cleanup_on_error() {
         err "$(T "Kurulum başarısız oldu! (Kod: $code)" "Installation failed! (Code: $code)")"
         err "$(T "Temizleniyor..." "Cleaning up...")"
         
-        # Bağlantıları aç
         umount -R /mnt 2>/dev/null || true
         cryptsetup close cryptroot 2>/dev/null || true
         
@@ -90,34 +89,18 @@ ui_menu() {
     whiptail --title "$title" --menu "$msg" 20 70 10 "${items[@]}" 3>&1 1>&2 2>&3 3>/dev/tty
 }
 
-# Progress bar göster
-show_progress() {
-    local current=$1
-    local total=$2
-    local width=50
-    local percent=$((current * 100 / total))
-    local filled=$((percent * width / 100))
-    
-    printf "\r["
-    printf "%${filled}s" | tr ' ' '='
-    printf "%$((width - filled))s" | tr ' ' '-'
-    printf "] %3d%% (%d/%d)" "$percent" "$current" "$total"
-}
-
 # =============================================================================
-# DISK KONTROL FONKSİYONLARI (DÜZELTILMIŞ)
+# DISK KONTROL FONKSİYONLARI
 # =============================================================================
 
 check_disk_space() {
     local disk="$1"
     
-    # Disk var mı kontrol et
     if [[ ! -b "$disk" ]]; then
         err "$(T "Disk bulunamadi: $disk" "Disk not found: $disk")"
         return 1
     fi
     
-    # Disk boyutunu al (sektör cinsinden)
     local disk_sectors=$(blockdev --getsz "$disk" 2>/dev/null || echo "0")
     
     if [[ $disk_sectors -eq 0 ]]; then
@@ -125,10 +108,7 @@ check_disk_space() {
         return 1
     fi
     
-    # Sektörleri byte'a çevir (her sektor 512 byte)
     local disk_bytes=$((disk_sectors * 512))
-    
-    # 20GB = 20 * 1024 * 1024 * 1024 byte
     local needed=$((20 * 1024 * 1024 * 1024))
     
     if [[ $disk_bytes -lt $needed ]]; then
@@ -340,7 +320,6 @@ log "LUKS passphrase set (${#LUKS_PASS} characters)"
 # =============================================================================
 section "$(T "Sistem Ayarlari" "System Settings")"
 
-# Reflector
 USE_REFLECTOR="no"
 if ui_question "$(T "Reflector" "Reflector")" "$(T \
     "En hizli mirrorlar secilsin mi? (~30-60sn)" \
@@ -349,7 +328,6 @@ if ui_question "$(T "Reflector" "Reflector")" "$(T \
 fi
 log "Reflector: $USE_REFLECTOR"
 
-# GPU
 while true; do
     GPU_CHOICE=$(ui_menu \
         "$(T "GPU Surucusu" "GPU Driver")" \
@@ -367,7 +345,6 @@ while true; do
 done
 log "GPU: $GPU_CHOICE"
 
-# Timezone
 while true; do
     TZ_REGION=$(ui_menu \
         "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
@@ -409,7 +386,6 @@ done
 TIMEZONE="${TZ_REGION}/${TIMEZONE_CITY}"
 log "Timezone: $TIMEZONE"
 
-# Locale
 while true; do
     LOCALE=$(ui_menu \
         "$(T "Sistem Dili" "System Language")" \
@@ -424,7 +400,6 @@ while true; do
 done
 log "Locale: ${LOCALE}.UTF-8"
 
-# ZRAM
 while true; do
     ZRAM_SIZE=$(ui_menu \
         "$(T "ZRAM Boyutu" "ZRAM Size")" \
@@ -550,7 +525,6 @@ echo -n "$LUKS_PASS" | cryptsetup open --key-file=- "$ROOT_PART" cryptroot >> "$
     exit 1
 }
 
-# ŞİFRESİ BELLEKTEN SİL (KRİTİK)
 unset LUKS_PASS LUKS_PASS2
 
 REAL_LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
@@ -764,10 +738,20 @@ chmod 750 /.snapshots
 
 section "Kullanici: $USER_NAME"
 useradd -m -G wheel,video,audio,storage,optical,network -s /bin/bash "$USER_NAME"
-echo "==> Root sifresi:"
-passwd
-echo "==> ${USER_NAME} sifresi:"
-passwd "$USER_NAME"
+
+# TTY'ye bağlı olup olmadığını kontrol et (interaktif mi?)
+if [[ -t 0 ]]; then
+    echo "==> Root sifresi:"
+    passwd
+    echo "==> ${USER_NAME} sifresi:"
+    passwd "$USER_NAME"
+else
+    # Non-interactive: Geçici şifreler ayarla
+    echo "root:arch123" | chpasswd
+    echo "${USER_NAME}:arch123" | chpasswd
+    log "Temporary passwords set (root:arch123, ${USER_NAME}:arch123)"
+fi
+
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 section ".xinitrc"
@@ -934,12 +918,13 @@ section "Servisler"
 systemctl enable NetworkManager bluetooth \
     snapper-timeline.timer snapper-cleanup.timer
 
-WANTS_DIR="/home/${USER_NAME}/.config/systemd/user/default.target.wants"
-mkdir -p "$WANTS_DIR"
-for svc in pipewire.service pipewire-pulse.service wireplumber.service; do
-    ln -sf "/usr/lib/systemd/user/${svc}" "${WANTS_DIR}/${svc}"
-done
-chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config/systemd"
+# Pipewire'ı global olarak enable et (user session için değil)
+systemctl --global enable pipewire wireplumber 2>/dev/null || true
+
+# NVIDIA suspend/resume servisleri (varsa)
+if systemctl list-unit-files | grep -q nvidia-suspend; then
+    systemctl enable nvidia-suspend nvidia-resume nvidia-hibernate nvidia-resume-swap 2>/dev/null || true
+fi
 
 log "Kurulum tamamlandi."
 CHROOT_EOF
@@ -947,13 +932,16 @@ CHROOT_EOF
 chmod +x /mnt/chroot.sh
 
 # =============================================================================
-# 10. PACSTRAP (PROGRESS BAR İLE)
+# 10. PACSTRAP (DOĞRU YAKLAŞIM - PACMAN ÇIKTISINI DOĞRUDAN GÖSTER)
 # =============================================================================
 clear
 section "$(T "Paketler Kuruluyor" "Installing Packages")"
 
-# Paket listesi
-PACKAGES=(
+echo -e "${CYAN}Pacstrap başlatılıyor... Lütfen bekleyin.${NC}"
+echo ""
+
+# Paket listesi (array olarak)
+declare -a PACKAGES=(
     "base" "base-devel" "linux" "linux-headers" "linux-firmware" "$CPU_UCODE"
     "btrfs-progs" "nano" "nano-syntax-highlighting" "terminus-font"
     "networkmanager" "network-manager-applet"
@@ -975,40 +963,16 @@ for pkg in $GPU_PKGS; do
     PACKAGES+=("$pkg")
 done
 
-TOTAL_PACKAGES=${#PACKAGES[@]}
-CURRENT_PACKAGE=0
-
-# Pacstrap komutu oluştur
-PACSTRAP_CMD="pacstrap /mnt"
-for pkg in "${PACKAGES[@]}"; do
-    PACSTRAP_CMD="$PACSTRAP_CMD $pkg"
-done
-
-echo -e "${CYAN}Toplam ${TOTAL_PACKAGES} paket kurulacak${NC}"
-echo ""
-
-# Pacstrap'i çalıştır ve progress göster
-if timeout 1800 bash -c "
-    exec 3>&1
-    $PACSTRAP_CMD 2>&1 | while IFS= read -r line; do
-        # Her satırda paket sayısını artır (basit tahmin)
-        CURRENT_PACKAGE=\$((CURRENT_PACKAGE + 1))
-        if [[ \$CURRENT_PACKAGE -gt $TOTAL_PACKAGES ]]; then
-            CURRENT_PACKAGE=$TOTAL_PACKAGES
-        fi
-        show_progress \$CURRENT_PACKAGE $TOTAL_PACKAGES
-        echo \"\$line\" >> \"$LOG_FILE\"
-    done
-    show_progress $TOTAL_PACKAGES $TOTAL_PACKAGES
-    echo \"\"
-" >> "$LOG_FILE" 2>&1; then
+# Pacstrap'i çalıştır - çıktıyı DOĞRUDAN terminale göster
+# Log dosyasına da kaydet
+if timeout 1800 pacstrap /mnt "${PACKAGES[@]}" 2>&1 | tee -a "$LOG_FILE"; then
     echo ""
     log "$(T "Paketler basariyla kuruldu" "Packages installed successfully")"
 else
     echo ""
     ui_error "$(T "Hata" "Error")" "$(T \
-        "Paket kurulumu başarısız veya timeout!\n\nLog: $LOG_FILE" \
-        "Package installation failed or timeout!\n\nLog: $LOG_FILE")"
+        "Paket kurulumu başarısız!\n\nLog: $LOG_FILE" \
+        "Package installation failed!\n\nLog: $LOG_FILE")"
     exit 1
 fi
 
@@ -1021,11 +985,11 @@ genfstab -U /mnt >> /mnt/etc/fstab || {
 cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist || true
 
 # =============================================================================
-# 11. CHROOT (HATA KONTROLÜ)
+# 11. CHROOT
 # =============================================================================
 clear
 section "$(T "Sistem Yapilandirmasi" "System Configuration")"
-echo "$(T "Root ve kullanici sifreleri sorulacak..." "Root and user passwords will be prompted...")"
+echo "$(T "Root ve kullanici sifreleri sorulacak (veya geçici şifreler ayarlanacak)..." "Root and user passwords will be prompted (or temporary passwords will be set)...")"
 echo ""
 
 if ! arch-chroot /mnt /chroot.sh; then
@@ -1058,7 +1022,7 @@ if ui_question "$(T "Ek Paketler" "Extra Packages")" "$(T \
 
             clear
             echo "$(T "Paketler kuruluyor..." "Installing packages...")"
-            if ! arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT; then
+            if ! arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT | tee -a "$LOG_FILE"; then
                 ui_error "$(T "Hata" "Error")" "$(T \
                     "Bazi paketler kurulamadi!" \
                     "Some packages failed to install!")"
@@ -1090,7 +1054,8 @@ KURULULAR:
 NOTLAR:
 - Log: $LOG_FILE
 - Yeniden baslatmak: umount -R /mnt && reboot
-- Ses sorunu: systemctl --user enable --now pipewire pipewire-pulse wireplumber
+- Geçici şifreler kullanıldıysa ilk login'de değiştir
+- Ses sorunu: systemctl --user enable --now pipewire
 - Optimus dGPU: nrun <uygulama>" \
 "Arch Linux installed successfully!
 
@@ -1105,7 +1070,8 @@ INSTALLED:
 NOTES:
 - Log: $LOG_FILE
 - Reboot: umount -R /mnt && reboot
-- Audio issue: systemctl --user enable --now pipewire pipewire-pulse wireplumber
+- If temporary passwords were used, change them on first login
+- Audio issue: systemctl --user enable --now pipewire
 - Optimus dGPU: nrun <app>")"
 
 log "$(T "Kurulum tamamlandi!" "Installation completed!")"

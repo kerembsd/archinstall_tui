@@ -149,6 +149,7 @@ Bu script kuracak:
 - Pipewire ses
 - ZRAM swap
 - UFW firewall
+- Yay AUR helper
 
 Log: $LOG_FILE" \
 "Arch Linux Installation Wizard
@@ -160,6 +161,7 @@ This script will install:
 - Pipewire audio
 - ZRAM swap
 - UFW firewall
+- Yay AUR helper
 
 Log: $LOG_FILE")"
 
@@ -908,6 +910,14 @@ for svc in pipewire.service pipewire-pulse.service wireplumber.service; do
 done
 chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config/systemd"
 
+section "Yay (AUR)"
+su - "$USER_NAME" -c '
+    export DISPLAY=""
+    export XAUTHORITY=""
+    git clone https://aur.archlinux.org/yay.git ~/yay
+    cd ~/yay && makepkg -si --noconfirm && rm -rf ~/yay
+'
+log "Yay kuruldu."
 CHROOT_EOF
 
 chmod +x /mnt/chroot.sh
@@ -1014,6 +1024,7 @@ KURULULAR:
 - Pipewire ses
 - ZRAM ${ZRAM_SIZE}MB swap
 - UFW firewall
+- Yay AUR helper
 
 NOTLAR:
 - Log: $LOG_FILE
@@ -1029,6 +1040,7 @@ INSTALLED:
 - Pipewire audio
 - ZRAM ${ZRAM_SIZE}MB swap
 - UFW firewall
+- Yay AUR helper
 
 NOTES:
 - Log: $LOG_FILE

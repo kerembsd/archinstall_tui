@@ -7,43 +7,85 @@
 #  ██║  ██║██║  ██║╚██████╗██║  ██║       ██║   ╚██████╔╝██║
 #  ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 #
-#  TUI Installer v2.0 — LUKS2 + Btrfs + i3wm + Pipewire
-#  whiptail tabanlı, TR/EN dil desteği
+#  TUI Installer v2.1 — LUKS2 + Btrfs + i3wm + Pipewire
+#  dialog tabanlı, TR/EN dil desteği, Slate/Mint tema
 # =============================================================================
 set -euo pipefail
 
 # =============================================================================
-# WHIPTAIL TEMA — Slate/Mint (resimden esinlenildi)
+# DIALOG TEMA — Slate/Mint
+# Görseldeki renk şeması: koyu gri arka plan, mint yeşil vurgular
 # =============================================================================
-export NEWT_COLORS='
-root=green,black
-window=green,black
-border=green,black
-title=green,black
-button=black,green
-actbutton=black,white
-compactbutton=green,black
-listbox=green,black
-actlistbox=black,green
-sellistbox=black,green
-actsellistbox=black,white
-entry=green,black
-disentry=white,black
-label=green,black
-checkbox=green,black
-actcheckbox=black,green
-emptyscale=black,black
-fullscale=green,black
-helpline=black,green
-roottext=green,black
-'
+export DIALOGRC="/tmp/.dialogrc_archinstall"
+cat > "$DIALOGRC" << 'DIALOGRC_EOF'
+# Arka plan (tüm ekran)
+screen_color = (GREEN,BLACK,ON)
+
+# Pencere
+dialog_color = (GREEN,BLACK,OFF)
+border_color = (GREEN,BLACK,ON)
+title_color  = (GREEN,BLACK,ON)
+
+# Butonlar
+button_active_color   = (BLACK,GREEN,ON)
+button_inactive_color = (GREEN,BLACK,OFF)
+button_key_active_color   = (BLACK,GREEN,ON)
+button_key_inactive_color = (GREEN,BLACK,OFF)
+button_label_active_color   = (BLACK,GREEN,ON)
+button_label_inactive_color = (GREEN,BLACK,OFF)
+
+# Menü / Liste
+menubox_color       = (GREEN,BLACK,OFF)
+menubox_border_color = (GREEN,BLACK,ON)
+item_color          = (GREEN,BLACK,OFF)
+item_selected_color = (BLACK,GREEN,ON)
+tag_color           = (GREEN,BLACK,ON)
+tag_selected_color  = (BLACK,GREEN,ON)
+tag_key_color       = (GREEN,BLACK,ON)
+tag_key_selected_color = (BLACK,GREEN,ON)
+
+# Input kutusu
+inputbox_color        = (GREEN,BLACK,OFF)
+inputbox_border_color = (GREEN,BLACK,ON)
+
+# Şifre kutusu
+passwordbox_color        = (GREEN,BLACK,OFF)
+passwordbox_border_color = (GREEN,BLACK,ON)
+
+# Checklist
+check_color          = (GREEN,BLACK,OFF)
+check_selected_color = (BLACK,GREEN,ON)
+
+# Textbox
+textbox_color        = (GREEN,BLACK,OFF)
+textbox_border_color = (GREEN,BLACK,ON)
+
+# Form
+form_active_text_color = (BLACK,GREEN,ON)
+form_text_color        = (GREEN,BLACK,OFF)
+form_item_readonly_color = (GREEN,BLACK,ON)
+
+# Gauge
+gauge_color = (BLACK,GREEN,ON)
+
+# Yardım
+searchbox_color        = (GREEN,BLACK,OFF)
+searchbox_title_color  = (GREEN,BLACK,ON)
+searchbox_border_color = (GREEN,BLACK,ON)
+
+# Genel
+shadow_color  = (BLACK,BLACK,ON)
+use_shadow    = ON
+use_colors    = ON
+DIALOGRC_EOF
 
 # =============================================================================
 # SABITLER
 # =============================================================================
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
-readonly SCRIPT_VERSION="2.0"
+readonly SCRIPT_VERSION="2.1"
+readonly DLG="dialog --colors --backtitle ArchInstall\ v${SCRIPT_VERSION}"
 
 echo "=== ArchInstall v${SCRIPT_VERSION} — $(date) ===" > "$LOG_FILE"
 
@@ -62,25 +104,53 @@ section() { echo -e "\n${CYAN}${BOLD}══ $* ══${NC}\n"; echo -e "\n══
 LANG_CHOICE="tr"
 T() { [[ "$LANG_CHOICE" == "tr" ]] && echo "$1" || echo "$2"; }
 
-# whiptail kısayolları
-WT_TITLE="ArchInstall v${SCRIPT_VERSION}"
-wt_msg()  { whiptail --title "$WT_TITLE" --msgbox  "$1" "${2:-12}" "${3:-65}"; }
-wt_info() { whiptail --title "$WT_TITLE" --infobox "$1" "${2:-6}"  "${3:-55}"; sleep "${4:-1}"; }
+# dialog kısayolları
+DTITLE="ArchInstall v${SCRIPT_VERSION}"
 
-# Hata yakalayıcı — retry / iptal
+d_msg() {
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$DTITLE" --msgbox "$1" "${2:-12}" "${3:-65}"
+}
+d_info() {
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$DTITLE" --infobox "$1" "${2:-5}" "${3:-55}"
+    sleep "${4:-1}"
+}
+d_yesno() {
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$DTITLE" --yesno "$1" "${2:-10}" "${3:-60}"
+}
+d_menu() {
+    # $1=title $2=text $3=h $4=w $5=listh, sonrası tag/item çiftleri
+    local title="$1" text="$2" h="$3" w="$4" lh="$5"
+    shift 5
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$title" --menu "$text" "$h" "$w" "$lh" "$@" \
+        3>&1 1>&2 2>&3
+}
+d_input() {
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$1" --inputbox "$2" "${3:-10}" "${4:-55}" "" \
+        3>&1 1>&2 2>&3
+}
+d_pass() {
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$1" --passwordbox "$2" "${3:-9}" "${4:-55}" \
+        3>&1 1>&2 2>&3
+}
+
+# Hata yakalayıcı
 on_error() {
     local code=$? line=$1
     err "Satır ${line} — hata kodu: ${code}"
-    err "Log: $LOG_FILE"
-    if whiptail --title "$(T "⚠ HATA" "⚠ ERROR")" \
-        --yesno "$(T \
-            "Satır ${line}'de hata oluştu (kod: ${code}).\n\nLog: $LOG_FILE\n\nYine de devam etmek istiyor musun?" \
-            "Error at line ${line} (code: ${code}).\n\nLog: $LOG_FILE\n\nDo you want to continue anyway?")" \
-        12 65; then
+    if d_yesno "$(T \
+        "Satır ${line}'de hata oluştu (kod: ${code}).\n\nLog: $LOG_FILE\n\nDevam etmek istiyor musun?" \
+        "Error at line ${line} (code: ${code}).\n\nLog: $LOG_FILE\n\nContinue?")" 12 65; then
         warn "$(T "Kullanıcı devam etmeyi seçti." "User chose to continue.")"
     else
-        wt_msg "$(T "Kurulum iptal edildi.\n\nLog: $LOG_FILE" \
-                    "Installation cancelled.\n\nLog: $LOG_FILE")" 10 55
+        d_msg "$(T "Kurulum iptal edildi.\n\nLog: $LOG_FILE" \
+                   "Installation cancelled.\n\nLog: $LOG_FILE")" 10 55
+        rm -f "$DIALOGRC"
         exit 1
     fi
 }
@@ -89,11 +159,12 @@ trap 'on_error $LINENO' ERR
 # =============================================================================
 # 0. DİL SEÇİMİ
 # =============================================================================
-LANG_CHOICE=$(whiptail --title "ArchInstall — Language / Dil" \
-    --menu "Lütfen dil seçin / Please select language:" 12 50 2 \
+LANG_CHOICE=$(d_menu \
+    "ArchInstall — Language / Dil" \
+    "Lütfen dil seçin / Please select language:" \
+    12 50 2 \
     "tr" "Turkce" \
-    "en" "English" \
-    3>&1 1>&2 2>&3) || exit 0
+    "en" "English") || exit 0
 
 # =============================================================================
 # 1. SPLASH EKRANI
@@ -116,17 +187,14 @@ cat << 'SPLASH'
   .8888'             `888888.
  .8888:..  .::.  ...:'8888888:.
 .8888.'     :'     `'::`88:88888
-.8888        '         `.888:8888.
-888:8         .           888:88888
-.888:80        .           888:88888
 
 SPLASH
 echo -e "${NC}"
-echo -e "${BOLD}${CYAN}       ArchInstall TUI v2.0${NC}"
+echo -e "${BOLD}${CYAN}       ArchInstall TUI v2.1${NC}"
 echo -e "  LUKS2  Btrfs  i3wm  Pipewire"
 sleep 1
 
-whiptail --title "$WT_TITLE" --msgbox "$(T \
+d_msg "$(T \
 "Arch Linux Kurulum Sihirbazina Hos Geldin!
 
 Bu script otomatik olarak sunu kurar:
@@ -157,37 +225,32 @@ Log file: $LOG_FILE
 Press OK to continue.")" 24 62
 
 # =============================================================================
-# 2. ON KONTROLLER
+# 2. ÖN KONTROLLER
 # =============================================================================
 section "$(T "On Kontroller" "Pre-checks")"
 
 [[ $EUID -ne 0 ]] && {
-    wt_msg "$(T "Bu script ROOT olarak calistirilmalidir!" \
-                "This script must be run as ROOT!")" 8 52
+    d_msg "$(T "Bu script ROOT olarak calistirilmalidir!" \
+               "This script must be run as ROOT!")" 8 52
     exit 1
 }
 
-wt_info "$(T "Internet baglantisi kontrol ediliyor..." \
-             "Checking internet connection...")"
+d_info "$(T "Internet baglantisi kontrol ediliyor..." \
+            "Checking internet connection...")"
 
 ping -c1 -W3 archlinux.org &>/dev/null || {
-    wt_msg "$(T "Internet baglantisi yok!\nLutfen baglantinizi kontrol edin." \
-               "No internet connection!\nPlease check your connection.")" 9 55
+    d_msg "$(T "Internet baglantisi yok!\nLutfen baglantinizi kontrol edin." \
+              "No internet connection!\nPlease check your connection.")" 9 55
     exit 1
 }
 log "$(T "Internet: OK" "Internet: OK")"
 
-# CPU tespiti
 CPU_VENDOR=$(lscpu | awk -F: '/Vendor ID/ {print $2}' | xargs)
-if [[ "$CPU_VENDOR" == "AuthenticAMD" ]]; then
-    CPU_UCODE="amd-ucode"
-else
-    CPU_UCODE="intel-ucode"
-fi
+[[ "$CPU_VENDOR" == "AuthenticAMD" ]] && CPU_UCODE="amd-ucode" || CPU_UCODE="intel-ucode"
 log "CPU: $CPU_VENDOR -> $CPU_UCODE"
 
 # =============================================================================
-# 3. DiSK SECiMi
+# 3. DİSK SEÇİMİ
 # =============================================================================
 section "$(T "Disk Secimi" "Disk Selection")"
 
@@ -201,145 +264,125 @@ while IFS= read -r devname; do
     DISK_LIST+=("$devname" "${size} - ${model}")
 done < <(lsblk -dno NAME 2>/dev/null | grep -v "^loop\|^sr\|^rom\|^fd")
 
-if [[ ${#DISK_LIST[@]} -eq 0 ]]; then
-    wt_msg "$(T "Kurulabilir disk bulunamadi!\nlsblk ciktisini kontrol edin." \
-               "No installable disk found!\nCheck lsblk output.")" 9 55
+[[ ${#DISK_LIST[@]} -eq 0 ]] && {
+    d_msg "$(T "Kurulabilir disk bulunamadi!" "No installable disk found!")" 8 50
     exit 1
-fi
+}
 
-DISK_NAME=$(whiptail --title "$(T "Disk Secimi" "Disk Selection")" \
-    --menu "$(T \
-        "Kurulum yapilacak diski secin:\n!! SECILEN DISKTEKI TUM VERi SiLiNECEK !!" \
-        "Select the installation disk:\n!! ALL DATA ON SELECTED DISK WILL BE ERASED !!")" \
-    18 72 8 "${DISK_LIST[@]}" \
-    3>&1 1>&2 2>&3) || exit 0
+DISK_NAME=$(d_menu \
+    "$(T "Disk Secimi" "Disk Selection")" \
+    "$(T "!! SECILEN DISKTEKI TUM VERI SILINECEK !!" \
+        "!! ALL DATA ON SELECTED DISK WILL BE ERASED !!")" \
+    18 72 8 \
+    "${DISK_LIST[@]}") || exit 0
 
 DISK="/dev/$DISK_NAME"
 log "$(T "Secilen disk: $DISK" "Selected disk: $DISK")"
 
 # =============================================================================
-# 4. KULLANICI BiLGiLERi
+# 4. KULLANICI BİLGİLERİ
 # =============================================================================
 section "$(T "Kullanici Bilgileri" "User Information")"
 
 while true; do
-    USER_NAME=$(whiptail --title "$(T "Kullanici Adi" "Username")" \
-        --inputbox "$(T \
-            "Kullanici adinizi girin:\n(kucuk harf, rakam, _ veya - kullanin)" \
+    USER_NAME=$(d_input \
+        "$(T "Kullanici Adi" "Username")" \
+        "$(T "Kullanici adinizi girin:\n(kucuk harf, rakam, _ veya - kullanin)" \
             "Enter your username:\n(use lowercase, numbers, _ or -)")" \
-        10 55 3>&1 1>&2 2>&3) || exit 0
+        10 55) || exit 0
     [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_-]*$ ]] && break
-    wt_msg "$(T "Gecersiz kullanici adi!\nKucuk harf, rakam, _ veya - kullanin." \
-               "Invalid username!\nUse lowercase, numbers, _ or -.")" 9 55
+    d_msg "$(T "Gecersiz kullanici adi!\nKucuk harf, rakam, _ veya - kullanin." \
+              "Invalid username!\nUse lowercase, numbers, _ or -.")" 9 55
 done
 log "$(T "Kullanici: $USER_NAME" "User: $USER_NAME")"
 
 while true; do
-    HOST_NAME=$(whiptail --title "$(T "Bilgisayar Adi" "Hostname")" \
-        --inputbox "$(T \
-            "Bilgisayar adini (hostname) girin:" \
+    HOST_NAME=$(d_input \
+        "$(T "Bilgisayar Adi" "Hostname")" \
+        "$(T "Bilgisayar adini (hostname) girin:" \
             "Enter the computer hostname:")" \
-        9 55 3>&1 1>&2 2>&3) || exit 0
+        9 55) || exit 0
     [[ "$HOST_NAME" =~ ^[a-zA-Z0-9-]+$ ]] && break
-    wt_msg "$(T "Gecersiz hostname!\nHarf, rakam ve - kullanin." \
-               "Invalid hostname!\nUse letters, numbers and -.")" 9 50
+    d_msg "$(T "Gecersiz hostname!\nHarf, rakam ve - kullanin." \
+              "Invalid hostname!\nUse letters, numbers and -.")" 9 50
 done
 log "Hostname: $HOST_NAME"
 
 # =============================================================================
-# 5. LUKS SiFRESi + GUC KONTROLU
+# 5. LUKS ŞİFRESİ + GÜÇ KONTROLÜ
 # =============================================================================
 section "$(T "Disk Sifreleme" "Disk Encryption")"
 
 check_pass_strength() {
-    local pass="$1"
-    local score=0
-    local warnings=""
-
+    local pass="$1" score=0 warnings=""
     [[ ${#pass} -ge 12 ]] && ((score++)) || true
     [[ ${#pass} -ge 16 ]] && ((score++)) || true
     [[ "$pass" =~ [A-Z] ]] && ((score++)) || true
     [[ "$pass" =~ [0-9] ]] && ((score++)) || true
     [[ "$pass" =~ [^a-zA-Z0-9] ]] && ((score++)) || true
-
-    [[ ${#pass} -lt 12 ]] && warnings+="$(T "- Kisa sifre (12+ onerilen)\n" "- Short password (12+ recommended)\n")"
-    [[ ! "$pass" =~ [A-Z] ]] && warnings+="$(T "- Buyuk harf yok\n" "- No uppercase letter\n")"
-    [[ ! "$pass" =~ [0-9] ]] && warnings+="$(T "- Rakam yok\n" "- No digit\n")"
+    [[ ${#pass} -lt 12 ]]         && warnings+="$(T "- Kisa sifre (12+ onerilen)\n" "- Short password (12+ recommended)\n")"
+    [[ ! "$pass" =~ [A-Z] ]]      && warnings+="$(T "- Buyuk harf yok\n" "- No uppercase letter\n")"
+    [[ ! "$pass" =~ [0-9] ]]      && warnings+="$(T "- Rakam yok\n" "- No digit\n")"
     [[ ! "$pass" =~ [^a-zA-Z0-9] ]] && warnings+="$(T "- Ozel karakter yok\n" "- No special character\n")"
-
     echo "${score}|${warnings}"
 }
 
 while true; do
-    LUKS_PASS=$(whiptail --title "$(T "LUKS Sifresi" "LUKS Passphrase")" \
-        --passwordbox "$(T \
-            "Disk sifreleme parolasini girin:\n(Bu parola olmadan sisteme giremezsiniz!)" \
+    LUKS_PASS=$(d_pass \
+        "$(T "LUKS Sifresi" "LUKS Passphrase")" \
+        "$(T "Disk sifreleme parolasini girin:\n(Bu parola olmadan sisteme giremezsiniz!)" \
             "Enter disk encryption passphrase:\n(You cannot access the system without this!)")" \
-        10 65 3>&1 1>&2 2>&3) || exit 0
+        10 65) || exit 0
 
-    LUKS_PASS2=$(whiptail --title "$(T "LUKS Sifresi - Dogrula" "LUKS Passphrase - Confirm")" \
-        --passwordbox "$(T "Parolayi tekrar girin:" "Re-enter passphrase:")" \
-        9 55 3>&1 1>&2 2>&3) || exit 0
+    LUKS_PASS2=$(d_pass \
+        "$(T "LUKS Sifresi - Dogrula" "LUKS Passphrase - Confirm")" \
+        "$(T "Parolayi tekrar girin:" "Re-enter passphrase:")" \
+        9 55) || exit 0
 
-    if [[ "$LUKS_PASS" != "$LUKS_PASS2" ]]; then
-        wt_msg "$(T "Parolalar eslesmiyor! Tekrar deneyin." \
-                   "Passphrases do not match! Try again.")" 8 50
+    [[ "$LUKS_PASS" != "$LUKS_PASS2" ]] && {
+        d_msg "$(T "Parolalar eslesmiyor!" "Passphrases do not match!")" 7 45
         continue
-    fi
-
-    if [[ ${#LUKS_PASS} -lt 8 ]]; then
-        wt_msg "$(T "Parola cok kisa! En az 8 karakter gerekli." \
-                   "Passphrase too short! Minimum 8 characters.")" 8 55
+    }
+    [[ ${#LUKS_PASS} -lt 8 ]] && {
+        d_msg "$(T "Parola cok kisa! En az 8 karakter." "Too short! Minimum 8 characters.")" 7 48
         continue
-    fi
+    }
 
     result=$(check_pass_strength "$LUKS_PASS")
     score=$(cut -d'|' -f1 <<< "$result")
     warns=$(cut -d'|' -f2- <<< "$result")
 
-    if [[ $score -ge 4 ]]; then
-        strength="$(T "Guclu" "Strong")"
-    elif [[ $score -ge 2 ]]; then
-        strength="$(T "Orta" "Moderate")"
-    else
-        strength="$(T "Zayif" "Weak")"
-    fi
+    [[ $score -ge 4 ]] && strength="$(T "Guclu" "Strong")" \
+        || { [[ $score -ge 2 ]] && strength="$(T "Orta" "Moderate")" || strength="$(T "Zayif" "Weak")"; }
 
     if [[ -n "$warns" ]]; then
-        if ! whiptail --title "$(T "Sifre Gucu: $strength" "Passphrase Strength: $strength")" \
-            --yesno "$(T \
-                "Uyarilar:\n${warns}\nYine de devam etmek istiyor musun?" \
-                "Warnings:\n${warns}\nDo you want to continue anyway?")" \
-            14 60; then
-            continue
-        fi
+        d_yesno "$(T "Sifre Gucu: $strength\n\nUyarilar:\n${warns}\nYine de devam?" \
+                    "Passphrase Strength: $strength\n\nWarnings:\n${warns}\nContinue anyway?")" 14 60 \
+            || continue
     else
-        wt_info "$(T "Sifre gucu: $strength" "Passphrase strength: $strength")" 6 45 1
+        d_info "$(T "Sifre gucu: \Z2$strength\Zn" "Passphrase strength: \Z2$strength\Zn")" 5 45 1
     fi
     break
 done
 log "$(T "LUKS sifresi ayarlandi." "LUKS passphrase configured.")"
 
 # =============================================================================
-# 6. GPU / TIMEZONE / LOCALE / ZRAM
+# 6. SİSTEM AYARLARI
 # =============================================================================
 section "$(T "Sistem Ayarlari" "System Settings")"
 
-# Reflector sorusu
+# Reflector
 USE_REFLECTOR="no"
-if whiptail --title "$(T "Mirror Optimizasyonu" "Mirror Optimization")" \
-    --yesno "$(T \
-        "Paket indirme hizini artirmak icin en yakin ve hizli\nmirrorlar otomatik secilsin mi?\n\n(Reflector ile ~30-60 sn surabilir)" \
-        "Automatically select the fastest nearby mirrors\nto speed up package downloads?\n\n(Takes ~30-60 sec with Reflector)")" \
-    11 60; then
-    USE_REFLECTOR="yes"
-    log "$(T "Reflector: aktif" "Reflector: enabled")"
-else
-    log "$(T "Reflector: atlandi" "Reflector: skipped")"
-fi
+d_yesno "$(T \
+    "Paket indirme hizini artirmak icin en yakin\nve hizli mirrorlar otomatik secilsin mi?\n\n(Reflector ile ~30-60 sn surabilir)" \
+    "Automatically select the fastest mirrors\nto speed up package downloads?\n\n(Takes ~30-60 sec with Reflector)")" \
+    11 58 && USE_REFLECTOR="yes" || true
+log "$(T "Reflector: $USE_REFLECTOR" "Reflector: $USE_REFLECTOR")"
 
-GPU_CHOICE=$(whiptail --title "$(T "GPU Surucusu" "GPU Driver")" \
-    --menu "$(T "GPU yapilandirmasini secin:" "Select GPU configuration:")" \
+# GPU
+GPU_CHOICE=$(d_menu \
+    "$(T "GPU Surucusu" "GPU Driver")" \
+    "$(T "GPU yapilandirmasini secin:" "Select GPU configuration:")" \
     20 72 7 \
     "1" "$(T "Intel iGPU (entegre grafik)"          "Intel iGPU (integrated graphics)")" \
     "2" "$(T "AMD GPU (radeon/amdgpu)"               "AMD GPU (radeon/amdgpu)")" \
@@ -347,13 +390,14 @@ GPU_CHOICE=$(whiptail --title "$(T "GPU Surucusu" "GPU Driver")" \
     "4" "$(T "NVIDIA - Open (Turing+/RTX serisi)"    "NVIDIA - Open (Turing+/RTX only)")" \
     "5" "$(T "Intel + NVIDIA Optimus - Proprietary"  "Intel + NVIDIA Optimus - Proprietary")" \
     "6" "$(T "Intel + NVIDIA Optimus - Open (RTX)"   "Intel + NVIDIA Optimus - Open (RTX)")" \
-    "7" "$(T "Sanal Makine (VirtualBox/VMware/QEMU)" "Virtual Machine (VirtualBox/VMware/QEMU)")" \
-    3>&1 1>&2 2>&3) || exit 0
-log "$(T "GPU: $GPU_CHOICE" "GPU: $GPU_CHOICE")"
+    "7" "$(T "Sanal Makine (VirtualBox/VMware/QEMU)" "Virtual Machine (VirtualBox/VMware/QEMU)")") || exit 0
+log "GPU: $GPU_CHOICE"
 
-# Timezone: bölge
-TZ_REGION=$(whiptail --title "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
-    --menu "$(T "Bolge secin:" "Select region:")" 18 55 8 \
+# Timezone bölge
+TZ_REGION=$(d_menu \
+    "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
+    "$(T "Bolge secin:" "Select region:")" \
+    18 55 8 \
     "Europe"   "Europe / Avrupa" \
     "America"  "America / Amerika" \
     "Asia"     "Asia / Asya" \
@@ -361,57 +405,58 @@ TZ_REGION=$(whiptail --title "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
     "Pacific"  "Pacific / Pasifik" \
     "Atlantic" "Atlantic / Atlantik" \
     "Indian"   "Indian Ocean / Hint Okyanusu" \
-    "Arctic"   "Arctic / Arktik" \
-    3>&1 1>&2 2>&3) || exit 0
+    "Arctic"   "Arctic / Arktik") || exit 0
 
-# Timezone: şehir
+# Timezone şehir
 TZ_CITIES=()
 while IFS= read -r city; do
     TZ_CITIES+=("$city" "")
 done < <(timedatectl list-timezones 2>/dev/null | grep "^${TZ_REGION}/" | sed "s|${TZ_REGION}/||" | sort)
 
-TIMEZONE_CITY=$(whiptail --title "$(T "Zaman Dilimi - Sehir" "Timezone - City")" \
-    --menu "$(T "Sehir secin:" "Select city:")" 22 55 14 \
-    "${TZ_CITIES[@]}" \
-    3>&1 1>&2 2>&3) || exit 0
+TIMEZONE_CITY=$(d_menu \
+    "$(T "Zaman Dilimi - Sehir" "Timezone - City")" \
+    "$(T "Sehir secin:" "Select city:")" \
+    22 55 14 \
+    "${TZ_CITIES[@]}") || exit 0
 
 TIMEZONE="${TZ_REGION}/${TIMEZONE_CITY}"
 log "Timezone: $TIMEZONE"
 
 # Locale
-LOCALE=$(whiptail --title "$(T "Sistem Dili / Locale" "System Language / Locale")" \
-    --menu "$(T "Sistem dilini secin:" "Select system language:")" 14 55 4 \
+LOCALE=$(d_menu \
+    "$(T "Sistem Dili / Locale" "System Language / Locale")" \
+    "$(T "Sistem dilini secin:" "Select system language:")" \
+    12 50 4 \
     "en_US" "English (US)" \
     "tr_TR" "Turkce" \
     "de_DE" "Deutsch" \
-    "fr_FR" "Francais" \
-    3>&1 1>&2 2>&3) || exit 0
+    "fr_FR" "Francais") || exit 0
 log "Locale: ${LOCALE}.UTF-8"
 
 # ZRAM
-ZRAM_SIZE=$(whiptail --title "$(T "ZRAM Boyutu" "ZRAM Size")" \
-    --menu "$(T "ZRAM swap boyutunu secin:" "Select ZRAM swap size:")" 14 55 4 \
+ZRAM_SIZE=$(d_menu \
+    "$(T "ZRAM Boyutu" "ZRAM Size")" \
+    "$(T "ZRAM swap boyutunu secin:" "Select ZRAM swap size:")" \
+    12 50 4 \
     "2048" "2 GB" \
     "4096" "$(T "4 GB (onerilen)" "4 GB (recommended)")" \
     "6144" "6 GB" \
-    "8192" "8 GB" \
-    3>&1 1>&2 2>&3) || exit 0
+    "8192" "8 GB") || exit 0
 log "ZRAM: ${ZRAM_SIZE}MB"
 
 # =============================================================================
-# 7. KURULUM OZETI & SON ONAY
+# 7. KURULUM ÖZETİ & SON ONAY
 # =============================================================================
 EXTRA_PKGS=""
 GPU_LABELS=([1]="Intel iGPU" [2]="AMD GPU" [3]="NVIDIA Proprietary"
             [4]="NVIDIA Open" [5]="Optimus Proprietary"
             [6]="Optimus Open" [7]="Sanal Makine / VM")
 
-whiptail --title "$(T "!! KURULUM OZETI - SON ONAY !!" "!! INSTALLATION SUMMARY - FINAL CONFIRM !!")" \
-    --yesno "$(T \
+d_yesno "$(T \
 "Asagidaki ayarlarla kurulum BASLAYACAK:
 
   Disk       : $DISK
-  !! TUM VERi SiLiNECEK !!
+  !! TUM VERI SILINECEK !!
 
   Kullanici  : $USER_NAME
   Hostname   : $HOST_NAME
@@ -435,11 +480,10 @@ Onayliyor musun?" \
   ZRAM       : ${ZRAM_SIZE}MB
   CPU Ucode  : $CPU_UCODE
 
-Do you confirm?")" \
-    26 68 || exit 0
+Do you confirm?")" 26 68 || exit 0
 
 # =============================================================================
-# 9. GPU PAKET LiSTESi
+# 8. GPU PAKET LİSTESİ
 # =============================================================================
 case "$GPU_CHOICE" in
     1) GPU_PKGS="mesa intel-media-driver vulkan-intel" ;;
@@ -451,7 +495,6 @@ case "$GPU_CHOICE" in
     7) GPU_PKGS="mesa virtualbox-guest-utils" ;;
 esac
 
-# Disk partition isimlendirme
 if [[ "$DISK" =~ nvme|mmcblk ]]; then
     EFI_PART="${DISK}p1"; ROOT_PART="${DISK}p2"
 else
@@ -459,23 +502,20 @@ else
 fi
 
 # =============================================================================
-# 10. KURULUM — GAUGE
+# 9. KURULUM — GAUGE
 # =============================================================================
 (
-echo "XXX"; echo "2"
-echo "$(T "[1/10] NTP senkronizasyonu..." "[1/10] NTP sync...")"; echo "XXX"
+echo "10"; echo "# $(T "[1/9] NTP senkronizasyonu..." "[1/9] NTP sync...")"
 timedatectl set-ntp true >> "$LOG_FILE" 2>&1
 
-echo "XXX"; echo "8"
-echo "$(T "[2/10] Disk bolumlendiriliiyor: $DISK" "[2/10] Partitioning: $DISK")"; echo "XXX"
-sgdisk --zap-all "$DISK"                           >> "$LOG_FILE" 2>&1
-sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI"   "$DISK"  >> "$LOG_FILE" 2>&1
-sgdisk -n 2:0:0   -t 2:8309 -c 2:"LUKS"  "$DISK"  >> "$LOG_FILE" 2>&1
-partprobe "$DISK"                                   >> "$LOG_FILE" 2>&1
+echo "18"; echo "# $(T "[2/9] Disk bolümlendiriliyor: $DISK" "[2/9] Partitioning: $DISK")"
+sgdisk --zap-all "$DISK"                          >> "$LOG_FILE" 2>&1
+sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI"  "$DISK"  >> "$LOG_FILE" 2>&1
+sgdisk -n 2:0:0   -t 2:8309 -c 2:"LUKS" "$DISK"  >> "$LOG_FILE" 2>&1
+partprobe "$DISK"                                  >> "$LOG_FILE" 2>&1
 sleep 1
 
-echo "XXX"; echo "15"
-echo "$(T "[3/10] LUKS2 sifreleniyor..." "[3/10] LUKS2 encryption...")"; echo "XXX"
+echo "28"; echo "# $(T "[3/9] LUKS2 sifreleniyor..." "[3/9] LUKS2 encryption...")"
 echo -n "$LUKS_PASS" | cryptsetup luksFormat \
     --type luks2 --cipher aes-xts-plain64 \
     --key-size 512 --hash sha512 --pbkdf argon2id \
@@ -485,8 +525,7 @@ echo -n "$LUKS_PASS" | cryptsetup open --key-file=- "$ROOT_PART" cryptroot >> "$
 REAL_LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
 log "LUKS UUID: $REAL_LUKS_UUID"
 
-echo "XXX"; echo "24"
-echo "$(T "[4/10] Btrfs yapılandırılıyor..." "[4/10] Configuring Btrfs...")"; echo "XXX"
+echo "38"; echo "# $(T "[4/9] Btrfs yapilandiriliyor..." "[4/9] Configuring Btrfs...")"
 mkfs.btrfs -f -L "arch_root" /dev/mapper/cryptroot >> "$LOG_FILE" 2>&1
 mount /dev/mapper/cryptroot /mnt
 for sub in @ @home @log @pkg @snapshots @tmp; do
@@ -503,81 +542,16 @@ mount -o "${MOUNT_OPTS},subvol=@tmp,nosuid,nodev" /dev/mapper/cryptroot /mnt/tmp
 mkfs.fat -F32 -n "EFI" "$EFI_PART" >> "$LOG_FILE" 2>&1
 mount "$EFI_PART" /mnt/boot
 
-echo "XXX"; echo "33"
-echo "$(T "[5/10] Mirror listesi..." "[5/10] Mirror list...")"; echo "XXX"
+echo "48"; echo "# $(T "[5/9] Mirrorlist hazirlaniyor..." "[5/9] Preparing mirrorlist...")"
 pacman -Sy --noconfirm archlinux-keyring >> "$LOG_FILE" 2>&1
 if [[ "$USE_REFLECTOR" == "yes" ]]; then
     pacman -S --noconfirm reflector >> "$LOG_FILE" 2>&1
     reflector --country Turkey,Germany,Netherlands,France \
         --protocol https --age 12 --sort rate --fastest 10 \
         --save /etc/pacman.d/mirrorlist >> "$LOG_FILE" 2>&1
-    log "$(T "Mirrorlist guncellendi." "Mirrorlist updated.")"
 fi
 
-echo "XXX"; echo "42"
-echo "$(T "[6/10] Paket kurulumu hazirlanıyor..." "[6/10] Preparing package installation...")"; echo "XXX"
-sleep 1
-
-) | whiptail --title "$(T "Kurulum Ilerliyor" "Installation Progress")" \
-    --gauge "$(T "Lutfen bekleyin..." "Please wait...")" 8 72 0
-
-# ── Pacstrap: canlı log penceresi ────────────────────────────────────────────
-clear
-PACSTRAP_LOG="/tmp/pacstrap-$(date +%s).log"
-
-# Pacstrap arka planda çalışsın, tailbox canlı göstersin
-pacstrap /mnt \
-    base base-devel linux linux-headers linux-firmware "$CPU_UCODE" \
-    btrfs-progs nano nano-syntax-highlighting terminus-font \
-    networkmanager network-manager-applet \
-    git wget curl \
-    xorg-server xorg-xauth xorg-xinit xorg-xrandr xorg-xinput \
-    i3-wm i3status i3lock dmenu \
-    alacritty \
-    lxsession polkit polkit-gnome \
-    pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber pavucontrol \
-    bluez bluez-utils blueman \
-    ufw \
-    zram-generator \
-    snapper snap-pac \
-    feh picom dunst \
-    ttf-dejavu ttf-liberation noto-fonts \
-    man-db man-pages \
-    $GPU_PKGS > "$PACSTRAP_LOG" 2>&1 &
-
-PACSTRAP_PID=$!
-
-# tailbox ile canlı log göster (arka plan işi bitene kadar)
-while kill -0 "$PACSTRAP_PID" 2>/dev/null; do
-    whiptail --title "$(T "Paketler Kuruluyor..." "Installing Packages...")" \
-        --tailbox "$PACSTRAP_LOG" 28 80
-done
-
-# Pacstrap başarılı mı kontrol et
-wait "$PACSTRAP_PID" || {
-    wt_msg "$(T \
-        "Paket kurulumu basarisiz!\nLog: $PACSTRAP_LOG" \
-        "Package installation failed!\nLog: $PACSTRAP_LOG")" 9 55
-    exit 1
-}
-cat "$PACSTRAP_LOG" >> "$LOG_FILE"
-log "$(T "Paketler kuruldu." "Packages installed.")"
-
-# Gauge devam — kalan adımlar
-(
-echo "XXX"; echo "60"
-echo "$(T "[7/10] fstab olusturuluyor..." "[7/10] Generating fstab...")"; echo "XXX"
-genfstab -U /mnt >> /mnt/etc/fstab
-# Duplicate temizle
-grep -v "^[[:space:]]*$" /mnt/etc/fstab | grep -v "^#" | \
-    awk '{print $2}' | sort | uniq -d | while read -r dup; do
-    awk -v mp="$dup" '$2==mp && seen{next} $2==mp{seen=1} {print}' \
-        /mnt/etc/fstab > /tmp/fstab.clean && mv /tmp/fstab.clean /mnt/etc/fstab
-done
-cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
-
-echo "XXX"; echo "65"
-echo "$(T "[8/10] Degiskenler aktariliyor..." "[8/10] Passing variables...")"; echo "XXX"
+echo "55"; echo "# $(T "[6/9] Degiskenler hazirlaniyor..." "[6/9] Preparing variables...")"
 cat > /mnt/chroot_vars.sh << VARS
 USER_NAME="${USER_NAME}"
 HOST_NAME="${HOST_NAME}"
@@ -589,8 +563,7 @@ TIMEZONE="${TIMEZONE}"
 LOCALE="${LOCALE}"
 VARS
 
-echo "XXX"; echo "70"
-echo "$(T "[9/10] Chroot scripti yaziliyor..." "[9/10] Writing chroot script...")"; echo "XXX"
+echo "62"; echo "# $(T "[7/9] Chroot scripti yaziliyor..." "[7/9] Writing chroot script...")"
 
 cat > /mnt/chroot.sh << 'CHROOT_EOF'
 #!/bin/bash
@@ -609,7 +582,6 @@ sed -i 's/#en_US.UTF-8/en_US.UTF-8/'         /etc/locale.gen
 locale-gen
 echo "LANG=${LOCALE}.UTF-8" > /etc/locale.conf
 printf "KEYMAP=trq\nCONSOLEFONT=ter-v16n\n" > /etc/vconsole.conf
-
 mkdir -p /etc/X11/xorg.conf.d/
 cat > /etc/X11/xorg.conf.d/00-keyboard.conf << 'XKB'
 Section "InputClass"
@@ -627,7 +599,6 @@ cat > /etc/hosts << HOSTS
 ::1         localhost
 127.0.1.1   ${HOST_NAME}.localdomain ${HOST_NAME}
 HOSTS
-log "Hostname: $HOST_NAME"
 
 section "mkinitcpio"
 if [[ "$GPU_CHOICE" =~ ^[3456]$ ]]; then
@@ -638,7 +609,6 @@ else
     sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect microcode modconf kms block keyboard keymap consolefont encrypt btrfs filesystems fsck)/' /etc/mkinitcpio.conf
 fi
 mkinitcpio -P
-log "initramfs olusturuldu."
 
 section "systemd-boot"
 bootctl install
@@ -670,7 +640,6 @@ options cryptdevice=UUID=${REAL_LUKS_UUID}:cryptroot root=/dev/mapper/cryptroot 
 ENTRY_FB
 
 systemctl enable fstrim.timer
-log "Bootloader kuruldu."
 
 section "ZRAM"
 cat > /etc/systemd/zram-generator.conf << ZRAM
@@ -680,14 +649,12 @@ compression-algorithm = zstd
 swap-priority = 100
 fs-type = swap
 ZRAM
-log "ZRAM: ${ZRAM_SIZE}MB"
 
 section "UFW"
 sed -i 's/^DEFAULT_INPUT_POLICY=.*/DEFAULT_INPUT_POLICY="DROP"/'     /etc/default/ufw
 sed -i 's/^DEFAULT_OUTPUT_POLICY=.*/DEFAULT_OUTPUT_POLICY="ACCEPT"/' /etc/default/ufw
 sed -i 's/^ENABLED=.*/ENABLED=yes/'                                  /etc/ufw/ufw.conf
 systemctl enable ufw
-log "UFW yapilandirildi."
 
 section "Snapper"
 mkdir -p /etc/snapper/configs
@@ -723,7 +690,6 @@ mkdir -p /.snapshots
 mount -o "rw,noatime,compress=zstd:3,space_cache=v2,subvol=@snapshots" \
     /dev/mapper/cryptroot /.snapshots
 chmod 750 /.snapshots
-log "Snapper yapilandirildi."
 
 section "Kullanici: $USER_NAME"
 useradd -m -G wheel,video,audio,storage,optical,network -s /bin/bash "$USER_NAME"
@@ -732,7 +698,6 @@ passwd
 echo "==> ${USER_NAME} sifresi:"
 passwd "$USER_NAME"
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-log "Kullanici olusturuldu: $USER_NAME"
 
 section ".xinitrc"
 cat > "/home/${USER_NAME}/.xinitrc" << 'XINIT'
@@ -745,29 +710,23 @@ nm-applet &
 exec i3
 XINIT
 
-cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
-[[ -f ~/.bashrc ]] && . ~/.bashrc
-if [[ -z "$DISPLAY" ]] && [[ "$(tty)" == "/dev/tty1" ]]; then
-    exec startx 2>/tmp/startx-error.log
-    # Hata varsa log dosyasını göster
-    if [[ -s /tmp/startx-error.log ]]; then
-        echo "==> startx hatasi:"
-        cat /tmp/startx-error.log
-    fi
-fi
-BASH_P
-
 if [[ "$GPU_CHOICE" == "7" ]]; then
-    # VM: startx otomatik baslatma, manuel calistir
     cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
 [[ -f ~/.bashrc ]] && . ~/.bashrc
 # Sanal makine: startx'i manuel calistirin: $ startx
 BASH_P
     systemctl enable vboxservice 2>/dev/null || true
-    log "VM modu: startx otomatik baslatma devre disi."
-elif [[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]]; then
-    echo "alias nrun='prime-run'  # NVIDIA dGPU" >> "/home/${USER_NAME}/.bashrc"
+else
+    cat > "/home/${USER_NAME}/.bash_profile" << 'BASH_P'
+[[ -f ~/.bashrc ]] && . ~/.bashrc
+if [[ -z "$DISPLAY" ]] && [[ "$(tty)" == "/dev/tty1" ]]; then
+    exec startx
 fi
+BASH_P
+fi
+
+[[ "$GPU_CHOICE" == "5" || "$GPU_CHOICE" == "6" ]] && \
+    echo "alias nrun='prime-run'" >> "/home/${USER_NAME}/.bashrc"
 
 section "i3 Config"
 mkdir -p "/home/${USER_NAME}/.config/i3"
@@ -911,7 +870,6 @@ for svc in pipewire.service pipewire-pulse.service wireplumber.service; do
     ln -sf "/usr/lib/systemd/user/${svc}" "${WANTS_DIR}/${svc}"
 done
 chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/.config/systemd"
-log "Servisler etkinlestirildi."
 
 section "Yay (AUR)"
 su - "$USER_NAME" -c '
@@ -924,16 +882,62 @@ log "Yay kuruldu."
 CHROOT_EOF
 
 chmod +x /mnt/chroot.sh
-
-echo "XXX"; echo "75"
-echo "$(T "[10/10] Hazir! Sistem yapilandirmasi basliyor..." "[10/10] Ready! System configuration starting...")"; echo "XXX"
+echo "70"; echo "# $(T "[8/9] Chroot hazir..." "[8/9] Chroot ready...")"
 sleep 1
 
-) | whiptail --title "$(T "Kurulum Ilerliyor" "Installation Progress")" \
+) | dialog --colors --backtitle "$DTITLE" \
+    --title "$(T "Kurulum Ilerliyor" "Installation Progress")" \
     --gauge "$(T "Lutfen bekleyin..." "Please wait...")" 8 72 0
 
 # =============================================================================
-# 11. CHROOT — iNTERAKTiF
+# 10. PACSTRAP — CANLI LOG
+# =============================================================================
+clear
+PACSTRAP_LOG="/tmp/pacstrap-$(date +%s).log"
+
+pacstrap /mnt \
+    base base-devel linux linux-headers linux-firmware "$CPU_UCODE" \
+    btrfs-progs nano nano-syntax-highlighting terminus-font \
+    networkmanager network-manager-applet \
+    git wget curl \
+    xorg-server xorg-xauth xorg-xinit xorg-xrandr xorg-xinput \
+    i3-wm i3status i3lock dmenu \
+    alacritty \
+    lxsession polkit polkit-gnome \
+    pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber pavucontrol \
+    bluez bluez-utils blueman \
+    ufw zram-generator snapper snap-pac \
+    feh picom dunst \
+    ttf-dejavu ttf-liberation noto-fonts \
+    man-db man-pages dialog \
+    $GPU_PKGS > "$PACSTRAP_LOG" 2>&1 &
+
+PACSTRAP_PID=$!
+
+while kill -0 "$PACSTRAP_PID" 2>/dev/null; do
+    dialog --colors --backtitle "$DTITLE" \
+        --title "$(T "Paketler Kuruluyor..." "Installing Packages...")" \
+        --tailbox "$PACSTRAP_LOG" 28 80
+done
+
+wait "$PACSTRAP_PID" || {
+    d_msg "$(T "Paket kurulumu basarisiz!\nLog: $PACSTRAP_LOG" \
+              "Package installation failed!\nLog: $PACSTRAP_LOG")" 9 55
+    exit 1
+}
+cat "$PACSTRAP_LOG" >> "$LOG_FILE"
+
+# fstab
+genfstab -U /mnt >> /mnt/etc/fstab
+grep -v "^[[:space:]]*$" /mnt/etc/fstab | grep -v "^#" | \
+    awk '{print $2}' | sort | uniq -d | while read -r dup; do
+    awk -v mp="$dup" '$2==mp && seen{next} $2==mp{seen=1} {print}' \
+        /mnt/etc/fstab > /tmp/fstab.clean && mv /tmp/fstab.clean /mnt/etc/fstab
+done
+cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+
+# =============================================================================
+# 11. CHROOT — İNTERAKTİF
 # =============================================================================
 clear
 echo -e "\n${CYAN}${BOLD}══ $(T "Sistem Yapilandirmasi" "System Configuration") ══${NC}"
@@ -942,58 +946,44 @@ echo -e "\n${YELLOW}$(T \
     "Root and user passwords will be prompted:")${NC}\n"
 
 arch-chroot /mnt /chroot.sh
-
 rm -f /mnt/chroot.sh /mnt/chroot_vars.sh
 
 # =============================================================================
 # 12. EK PAKET KURULUMU
 # =============================================================================
-if whiptail --title "$(T "Ek Paket Kurulumu" "Extra Package Installation")" \
-    --yesno "$(T \
-        "Kurulum tamamlandi!\n\nEk paket kurmak ister misiniz?\n(Paket isimlerini kendiniz yazacaksiniz)" \
-        "Installation complete!\n\nWould you like to install extra packages?\n(You will type the package names yourself)")" \
-    11 60; then
+if d_yesno "$(T \
+    "Kurulum tamamlandi!\n\nEk paket kurmak ister misiniz?" \
+    "Installation complete!\n\nWould you like to install extra packages?")" 10 55; then
 
     while true; do
-        EXTRA_INPUT=$(whiptail --title "$(T "Ek Paketler" "Extra Packages")" \
-            --inputbox "$(T \
-                "Kurmak istediginiz paket isimlerini girin:\n(boslukla ayirin, ornek: firefox neovim htop)\n\nBos birakip ENTER ile atlayabilirsiniz." \
-                "Enter package names to install:\n(space-separated, e.g: firefox neovim htop)\n\nLeave empty and press ENTER to skip.")" \
-            12 65 3>&1 1>&2 2>&3) || break
+        EXTRA_INPUT=$(d_input \
+            "$(T "Ek Paketler" "Extra Packages")" \
+            "$(T "Paket isimlerini girin (boslukla ayirin):\nornek: firefox neovim htop\n\nBos birakip OK ile atla." \
+                "Enter package names (space-separated):\nexample: firefox neovim htop\n\nLeave empty to skip.")" \
+            12 65) || break
 
         [[ -z "$EXTRA_INPUT" ]] && break
 
-        # Onay
-        if whiptail --title "$(T "Onay" "Confirm")" \
-            --yesno "$(T \
-                "Asagidaki paketler kurulacak:\n\n  $EXTRA_INPUT\n\nDevam?" \
-                "The following packages will be installed:\n\n  $EXTRA_INPUT\n\nContinue?")" \
-            12 65; then
-            clear
-            echo -e "\n${CYAN}${BOLD}$(T "Paketler kuruluyor..." "Installing packages...")${NC}\n"
-            if arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT; then
-                wt_msg "$(T \
-                    "Paketler basariyla kuruldu:\n$EXTRA_INPUT" \
-                    "Packages installed successfully:\n$EXTRA_INPUT")" 10 60
-            else
-                wt_msg "$(T \
-                    "Bazi paketler kurulamadi!\nPaket isimlerini kontrol edin.\n\nTekrar denemek icin Hayir'a basin." \
-                    "Some packages failed to install!\nCheck the package names.\n\nPress No to try again.")" 11 62
-            fi
+        d_yesno "$(T \
+            "Kurulacak paketler:\n\n  $EXTRA_INPUT\n\nDevam?" \
+            "Packages to install:\n\n  $EXTRA_INPUT\n\nContinue?")" 12 60 || continue
 
-            # Daha fazla paket?
-            whiptail --title "$(T "Daha Fazla?" "More Packages?")" \
-                --yesno "$(T \
-                    "Baska paket kurmak ister misiniz?" \
-                    "Would you like to install more packages?")" \
-                8 50 || break
-        fi
+        clear
+        echo -e "\n${CYAN}${BOLD}$(T "Paketler kuruluyor..." "Installing packages...")${NC}\n"
+        arch-chroot /mnt pacman -S --noconfirm $EXTRA_INPUT \
+            && d_msg "$(T "Paketler kuruldu!" "Packages installed!")" 7 45 \
+            || d_msg "$(T "Bazi paketler kurulamadi!\nPaket isimlerini kontrol edin." \
+                         "Some packages failed!\nCheck the package names.")" 9 55
+
+        d_yesno "$(T "Baska paket kurmak ister misiniz?" \
+                    "Would you like to install more packages?")" 8 50 || break
     done
 fi
 
 # =============================================================================
-# 13. BiTiS
+# 13. BİTİŞ
 # =============================================================================
+rm -f "$DIALOGRC"
 clear
 echo -e "${CYAN}${BOLD}"
 cat << 'ENDSPLASH'
@@ -1014,12 +1004,13 @@ cat << 'ENDSPLASH'
 ENDSPLASH
 echo -e "${NC}"
 
-whiptail --title "$(T "KURULUM TAMAMLANDI!" "INSTALLATION COMPLETE!")" \
+dialog --colors --backtitle "$DTITLE" \
+    --title "$(T "KURULUM TAMAMLANDI!" "INSTALLATION COMPLETE!")" \
     --msgbox "$(T \
 "Arch Linux basariyla kuruldu!
 
   [v] LUKS2 (Argon2id) sifreleme
-  [v] Btrfs + Snapper otomatik snapshot
+  [v] Btrfs + Snapper snapshot
   [v] i3wm + gaps masaustu
   [v] Pipewire ses sistemi
   [v] ZRAM ${ZRAM_SIZE}MB swap
@@ -1039,7 +1030,7 @@ Yeniden baslatmak icin:
 "Arch Linux installed successfully!
 
   [v] LUKS2 (Argon2id) encryption
-  [v] Btrfs + Snapper auto snapshots
+  [v] Btrfs + Snapper snapshots
   [v] i3wm + gaps desktop
   [v] Pipewire audio
   [v] ZRAM ${ZRAM_SIZE}MB swap

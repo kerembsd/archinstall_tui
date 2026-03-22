@@ -316,7 +316,7 @@ done
 log "LUKS passphrase set (${#LUKS_PASS} characters)"
 
 # =============================================================================
-# 6. SİSTEM AYARLARI
+# 6. SİSTEM AYARLARI (DÜZELTILMIŞ - TÜM MENÜLER ÇEVİRİLİ)
 # =============================================================================
 section "$(T "Sistem Ayarlari" "System Settings")"
 
@@ -332,13 +332,13 @@ while true; do
     GPU_CHOICE=$(ui_menu \
         "$(T "GPU Surucusu" "GPU Driver")" \
         "$(T "GPU secin:" "Select GPU:")" \
-        "1" "Intel iGPU" \
-        "2" "AMD GPU" \
-        "3" "NVIDIA Proprietary" \
-        "4" "NVIDIA Open" \
-        "5" "Optimus Proprietary" \
-        "6" "Optimus Open" \
-        "7" "Virtual Machine") || exit 0
+        "1" "$(T "Intel iGPU" "Intel iGPU")" \
+        "2" "$(T "AMD GPU" "AMD GPU")" \
+        "3" "$(T "NVIDIA Proprietary" "NVIDIA Proprietary")" \
+        "4" "$(T "NVIDIA Open" "NVIDIA Open")" \
+        "5" "$(T "Optimus Proprietary" "Optimus Proprietary")" \
+        "6" "$(T "Optimus Open" "Optimus Open")" \
+        "7" "$(T "Virtual Machine" "Virtual Machine")") || exit 0
 
     [[ -z "$GPU_CHOICE" ]] && continue
     [[ "$GPU_CHOICE" =~ ^[1-7]$ ]] && break
@@ -349,14 +349,14 @@ while true; do
     TZ_REGION=$(ui_menu \
         "$(T "Zaman Dilimi - Bolge" "Timezone - Region")" \
         "$(T "Bolge:" "Region:")" \
-        "Europe" "Europe" \
-        "America" "America" \
-        "Asia" "Asia" \
-        "Africa" "Africa" \
-        "Pacific" "Pacific" \
-        "Atlantic" "Atlantic" \
-        "Indian" "Indian" \
-        "Arctic" "Arctic") || exit 0
+        "Europe" "$(T "Europe" "Europe")" \
+        "America" "$(T "America" "America")" \
+        "Asia" "$(T "Asia" "Asia")" \
+        "Africa" "$(T "Africa" "Africa")" \
+        "Pacific" "$(T "Pacific" "Pacific")" \
+        "Atlantic" "$(T "Atlantic" "Atlantic")" \
+        "Indian" "$(T "Indian" "Indian")" \
+        "Arctic" "$(T "Arctic" "Arctic")") || exit 0
 
     [[ -z "$TZ_REGION" ]] && continue
     break
@@ -390,10 +390,10 @@ while true; do
     LOCALE=$(ui_menu \
         "$(T "Sistem Dili" "System Language")" \
         "$(T "Dil:" "Language:")" \
-        "en_US" "English (US)" \
-        "tr_TR" "Turkce" \
-        "de_DE" "Deutsch" \
-        "fr_FR" "Francais") || exit 0
+        "en_US" "$(T "English (US)" "English (US)")" \
+        "tr_TR" "$(T "Turkce" "Turkish")" \
+        "de_DE" "$(T "Deutsch" "German")" \
+        "fr_FR" "$(T "Francais" "French")") || exit 0
 
     [[ -z "$LOCALE" ]] && continue
     break
@@ -404,10 +404,10 @@ while true; do
     ZRAM_SIZE=$(ui_menu \
         "$(T "ZRAM Boyutu" "ZRAM Size")" \
         "$(T "Boyut:" "Size:")" \
-        "2048" "2 GB" \
-        "4096" "4 GB (onerilen)" \
-        "6144" "6 GB" \
-        "8192" "8 GB") || exit 0
+        "2048" "$(T "2 GB" "2 GB")" \
+        "4096" "$(T "4 GB (onerilen)" "4 GB (recommended)")" \
+        "6144" "$(T "6 GB" "6 GB")" \
+        "8192" "$(T "8 GB" "8 GB")") || exit 0
 
     [[ -z "$ZRAM_SIZE" ]] && continue
     break
@@ -937,7 +937,7 @@ chmod +x /mnt/chroot.sh
 clear
 section "$(T "Paketler Kuruluyor" "Installing Packages")"
 
-echo -e "${CYAN}Pacstrap başlatılıyor... Lütfen bekleyin.${NC}"
+echo -e "${CYAN}$(T "Pacstrap başlatılıyor... Lütfen bekleyin." "Pacstrap starting... Please wait.")${NC}"
 echo ""
 
 # Paket listesi (array olarak)

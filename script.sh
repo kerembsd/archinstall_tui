@@ -14,7 +14,6 @@
 set -euo pipefail
 
 # dialog yoksa kur (Arch ISO'da varsayılan yüklü değil)
-set -x  # DEBUG
 if ! command -v dialog &>/dev/null; then
     echo "=> dialog bulunamadi, kuruluyor..."
     pacman -Sy --noconfirm dialog || {
@@ -34,8 +33,8 @@ screen_color = (GREEN,BLACK,ON)
 dialog_color = (GREEN,BLACK,OFF)
 border_color = (GREEN,BLACK,ON)
 title_color  = (GREEN,BLACK,ON)
-button_active_color   = (BLACK,GREEN,ON)
-button_inactive_color = (GREEN,BLACK,OFF)
+button_active_color       = (BLACK,GREEN,ON)
+button_inactive_color     = (GREEN,BLACK,OFF)
 button_key_active_color   = (BLACK,GREEN,ON)
 button_key_inactive_color = (GREEN,BLACK,OFF)
 button_label_active_color   = (BLACK,GREEN,ON)
@@ -59,13 +58,11 @@ textbox_border_color = (GREEN,BLACK,ON)
 form_active_text_color   = (BLACK,GREEN,ON)
 form_text_color          = (GREEN,BLACK,OFF)
 form_item_readonly_color = (GREEN,BLACK,ON)
-gauge_color   = (BLACK,GREEN,ON)
+gauge_color            = (BLACK,GREEN,ON)
 searchbox_color        = (GREEN,BLACK,OFF)
 searchbox_title_color  = (GREEN,BLACK,ON)
 searchbox_border_color = (GREEN,BLACK,ON)
-shadow_color  = (BLACK,BLACK,ON)
-use_shadow    = ON
-use_colors    = ON
+shadow_color = (BLACK,BLACK,ON)
 DIALOGRC_EOF
 
 # =============================================================================

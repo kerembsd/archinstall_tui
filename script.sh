@@ -14,6 +14,7 @@
 set -euo pipefail
 
 # dialog yoksa kur (Arch ISO'da varsayılan yüklü değil)
+set -x  # DEBUG
 if ! command -v dialog &>/dev/null; then
     echo "=> dialog bulunamadi, kuruluyor..."
     pacman -Sy --noconfirm dialog || {
@@ -29,62 +30,39 @@ fi
 # =============================================================================
 export DIALOGRC="/tmp/.dialogrc_archinstall"
 cat > "$DIALOGRC" << 'DIALOGRC_EOF'
-# Arka plan (tüm ekran)
 screen_color = (GREEN,BLACK,ON)
-
-# Pencere
 dialog_color = (GREEN,BLACK,OFF)
 border_color = (GREEN,BLACK,ON)
 title_color  = (GREEN,BLACK,ON)
-
-# Butonlar
 button_active_color   = (BLACK,GREEN,ON)
 button_inactive_color = (GREEN,BLACK,OFF)
 button_key_active_color   = (BLACK,GREEN,ON)
 button_key_inactive_color = (GREEN,BLACK,OFF)
 button_label_active_color   = (BLACK,GREEN,ON)
 button_label_inactive_color = (GREEN,BLACK,OFF)
-
-# Menü / Liste
-menubox_color       = (GREEN,BLACK,OFF)
+menubox_color        = (GREEN,BLACK,OFF)
 menubox_border_color = (GREEN,BLACK,ON)
-item_color          = (GREEN,BLACK,OFF)
-item_selected_color = (BLACK,GREEN,ON)
-tag_color           = (GREEN,BLACK,ON)
-tag_selected_color  = (BLACK,GREEN,ON)
-tag_key_color       = (GREEN,BLACK,ON)
+item_color           = (GREEN,BLACK,OFF)
+item_selected_color  = (BLACK,GREEN,ON)
+tag_color            = (GREEN,BLACK,ON)
+tag_selected_color   = (BLACK,GREEN,ON)
+tag_key_color        = (GREEN,BLACK,ON)
 tag_key_selected_color = (BLACK,GREEN,ON)
-
-# Input kutusu
 inputbox_color        = (GREEN,BLACK,OFF)
 inputbox_border_color = (GREEN,BLACK,ON)
-
-# Şifre kutusu
 passwordbox_color        = (GREEN,BLACK,OFF)
 passwordbox_border_color = (GREEN,BLACK,ON)
-
-# Checklist
 check_color          = (GREEN,BLACK,OFF)
 check_selected_color = (BLACK,GREEN,ON)
-
-# Textbox
 textbox_color        = (GREEN,BLACK,OFF)
 textbox_border_color = (GREEN,BLACK,ON)
-
-# Form
-form_active_text_color = (BLACK,GREEN,ON)
-form_text_color        = (GREEN,BLACK,OFF)
+form_active_text_color   = (BLACK,GREEN,ON)
+form_text_color          = (GREEN,BLACK,OFF)
 form_item_readonly_color = (GREEN,BLACK,ON)
-
-# Gauge
-gauge_color = (BLACK,GREEN,ON)
-
-# Yardım
+gauge_color   = (BLACK,GREEN,ON)
 searchbox_color        = (GREEN,BLACK,OFF)
 searchbox_title_color  = (GREEN,BLACK,ON)
 searchbox_border_color = (GREEN,BLACK,ON)
-
-# Genel
 shadow_color  = (BLACK,BLACK,ON)
 use_shadow    = ON
 use_colors    = ON

@@ -142,21 +142,9 @@ check_partition_table() {
 }
 
 # =============================================================================
-# STEP 0 — LANGUAGE
-# =============================================================================
-LANG_CHOICE=$(ui_menu \
-    "ArchInstall TUI v${SCRIPT_VERSION}" \
-    "Select language:" \
-    "tr" "Turkish" \
-    "en" "English") || exit 0
-[[ -z "$LANG_CHOICE" ]] && exit 0
-log "Language: $LANG_CHOICE"
-
-# =============================================================================
 # STEP 0 — WELCOME
 # =============================================================================
-ui_info "Welcome" "$(T \
-"ArchInstall TUI v${SCRIPT_VERSION}
+ui_info "Welcome" "ArchInstall TUI v${SCRIPT_VERSION}
 github.com/kerembsd/archinstall_tui
 
 Will be installed:
@@ -169,21 +157,7 @@ Will be installed:
   • Yay (AUR helper)
   • Dotfiles: github.com/kerembsd/i3wm
 
-Log file: $LOG_FILE" \
-"ArchInstall TUI v${SCRIPT_VERSION}
-github.com/kerembsd/archinstall_tui
-
-Will be installed:
-  • LUKS2 (Argon2id) full disk encryption
-  • Btrfs subvolume layout + Snapper snapshots
-  • i3wm desktop environment + gaps
-  • Pipewire audio system
-  • ZRAM swap
-  • UFW firewall
-  • Yay (AUR helper)
-  • Dotfiles: github.com/kerembsd/i3wm
-
-Log file: $LOG_FILE")"
+Log file: $LOG_FILE"
 
 # =============================================================================
 # STEP 1 — PRE-CHECKS

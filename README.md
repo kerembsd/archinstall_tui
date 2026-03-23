@@ -1,4 +1,4 @@
-# ArchInstall TUI 
+# ArchInstall TUI
 
 ArchInstall TUI is a terminal-based interactive installer for Arch Linux, designed to simplify the installation process while providing advanced features like full-disk encryption, Btrfs snapshots, and a pre-configured i3wm environment.
 

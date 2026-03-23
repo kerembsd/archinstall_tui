@@ -1,4 +1,4 @@
-## ArchInstall TUI
+# ArchInstall TUI
 
 ArchInstall TUI is a terminal-based interactive installer for Arch Linux, designed to simplify the installation process while providing advanced features like full-disk encryption, Btrfs snapshots, and a pre-configured i3wm environment.
 
@@ -9,8 +9,7 @@ i3 Window Manager: Pre-configured i3wm setup with gaps and useful defaults.
 Audio System: Pipewire + ALSA + PulseAudio support.
 ZRAM Swap: Configurable ZRAM swap for improved performance.
 Firewall: UFW enabled by default.
-Dotfiles Integration: Loads custom dotfiles from i3wm repo
-.
+Dotfiles Integration: Loads custom dotfiles from i3wm repo.
 GPU Support: Automatic driver selection (Intel, AMD, NVIDIA, Optimus, Virtual Machines).
 AUR Helper: Optional installation of yay for easy access to AUR packages.
 Automatic Locale & Timezone Setup: Supports multiple regions and cities.

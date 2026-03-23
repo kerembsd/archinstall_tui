@@ -8,7 +8,7 @@
 #  ██║  ██║██║  ██║╚██████╗██║  ██║       ██║   ╚██████╔╝██║
 #  ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝       ╚═╝    ╚═════╝ ╚═╝
 #
-#  Arch Linux TUI Installer v1.1
+#  Arch Linux TUI Installer v2.1
 #  github.com/kerembsd/archinstall_tui
 #
 #  Designed to run on the official Arch Linux ISO.
@@ -37,7 +37,7 @@ set -euo pipefail
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-readonly SCRIPT_VERSION="1.1"
+readonly SCRIPT_VERSION="2.1"
 readonly LOG_FILE="/tmp/archinstall-$(date +%Y%m%d-%H%M%S).log"
 readonly MOUNT_OPTS="rw,noatime,compress=zstd:3,space_cache=v2"
 readonly DOTFILES_REPO="https://github.com/kerembsd/i3wm.git"
@@ -208,14 +208,12 @@ check_disk_space() {
 # =============================================================================
 do_cleanup() {
     log_debug "Running cleanup..."
-    # Unmount in reverse order
-    for mp in /mnt/boot /mnt/tmp /mnt/.snapshots \
-              /mnt/var/cache/pacman/pkg /mnt/var/log /mnt/home /mnt; do
-        if mountpoint -q "$mp" 2>/dev/null; then
-            umount "$mp" 2>/dev/null || true
-        fi
-    done
+    # umount -R handles all submounts in one call (more reliable than manual list)
+    if mountpoint -q /mnt 2>/dev/null; then
+        umount -R /mnt 2>/dev/null || true
+    fi
     # Close LUKS if open
+    # Note: cryptsetup status inside "if" is safe under set -e (if guards non-zero exits)
     if cryptsetup status cryptroot &>/dev/null; then
         cryptsetup close cryptroot 2>/dev/null || true
     fi
@@ -385,23 +383,22 @@ preflight_check
 section "Disk Selection"
 
 DISK_LIST=()
-while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    devname=$(echo "$line" | awk '{print $1}')
-    size=$(echo "$line"    | awk '{print $2}')
-    tran=$(echo "$line"    | awk '{print $3}' | xargs)
-    model=$(echo "$line"   | awk '{$1=$2=$3=""; print $0}' | xargs)
+# Use pipe separator to safely handle MODEL fields that contain spaces
+# and TRAN fields that may be empty on some virtual/unusual devices
+while IFS='|' read -r devname size tran model; do
     [[ -z "$devname" || -z "$size" ]] && continue
-    [[ -z "$model" ]] && model="Unknown"
+    tran="${tran// /}"   # strip whitespace from transport field
+    model="${model:-Unknown}"
     case "$tran" in
         nvme) type_label="NVMe"           ;;
         sata) type_label="SATA"           ;;
         usb)  type_label="USB — CAUTION!" ;;
         mmc)  type_label="eMMC"           ;;
-        *)    type_label="${tran:-Disk}"   ;;
+        "")   type_label="Disk"           ;;   # empty TRAN (VM/unusual device)
+        *)    type_label="$tran"          ;;
     esac
     DISK_LIST+=("$devname" "[${type_label}] ${size} — ${model}")
-done < <(lsblk -dn -e 7,11 -o NAME,SIZE,TRAN,MODEL 2>/dev/null)
+done < <(lsblk -dn -e 7,11 -o NAME,SIZE,TRAN,MODEL --output-separator='|' 2>/dev/null)
 
 [[ ${#DISK_LIST[@]} -eq 0 ]] && {
     ui_error "No Disk Found" "No installable disk detected!\n\nMake sure your disk is connected and recognized by the system."
@@ -470,6 +467,7 @@ while true; do
         continue
     }
 
+    local strength
     strength=$(validate_password_strength "$LUKS_PASS")
     if [[ $strength -lt 2 ]]; then
         ui_confirm "Weak Passphrase Warning" \
@@ -484,7 +482,7 @@ Do you want to use this weak passphrase anyway?" || continue
     fi
     break
 done
-log "LUKS passphrase set (${#LUKS_PASS} characters, strength: $(validate_password_strength "$LUKS_PASS")/5)"
+log "LUKS passphrase set (${#LUKS_PASS} characters, strength: ${strength}/5)"
 
 # =============================================================================
 # STEP 5 — SYSTEM SETTINGS
@@ -592,9 +590,11 @@ GPU_LABELS=(
     [7]="Virtual Machine"
 )
 
-[[ "$USE_DOTFILES" == "yes" ]] \
-    && DOTFILES_STATUS="Custom — kerembsd/i3wm (Gruvbox)" \
-    || DOTFILES_STATUS="Default — i3 auto-generated"
+if [[ "$USE_DOTFILES" == "yes" ]]; then
+    DOTFILES_STATUS="Custom — kerembsd/i3wm (Gruvbox)"
+else
+    DOTFILES_STATUS="Default — i3 auto-generated"
+fi
 
 ui_confirm "Installation Summary — Please Review" \
 "Review your settings before installation begins:
@@ -898,7 +898,6 @@ initrd  /initramfs-linux-fallback.img
 options cryptdevice=UUID=${REAL_LUKS_UUID}:cryptroot root=/dev/mapper/cryptroot rootflags=subvol=@ rw
 ENTRY_FB
 
-systemctl enable fstrim.timer
 log "systemd-boot: ✓"
 
 # ── ZRAM ─────────────────────────────────────────────────────────────────────
@@ -1091,8 +1090,9 @@ GTK2
 chown -R "${USER_NAME}:${USER_NAME}" "/home/${USER_NAME}/"
 log "Desktop configuration: ✓"
 
-# ── Enable parallel downloads on installed system ─────────────────────────────
+# Enable parallel downloads
 sed -i "s/^#ParallelDownloads/ParallelDownloads/" /etc/pacman.conf
+log "Parallel downloads: enabled"
 
 # ── Services ─────────────────────────────────────────────────────────────────
 section "System Services"
@@ -1123,8 +1123,14 @@ log "Pipewire: user services enabled"
 [[ "$GPU_CHOICE" =~ ^[3456]$ ]] && \
     systemctl enable nvidia-suspend nvidia-resume nvidia-hibernate 2>/dev/null || true
 
-# ── Yay AUR Helper ───────────────────────────────────────────────────────────
+# ── Yay (AUR Helper) ─────────────────────────────────────────────────────────
 section "Yay (AUR Helper)"
+# makepkg -si calls sudo internally to install packages via pacman.
+# Without NOPASSWD the sudo prompt hangs in a non-interactive context.
+# Grant temporary passwordless sudo, remove it immediately after.
+echo "${USER_NAME} ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/${USER_NAME}-temp"
+chmod 440 "/etc/sudoers.d/${USER_NAME}-temp"
+
 su - "$USER_NAME" -c '
     export DISPLAY=""
     export XAUTHORITY=""
@@ -1137,6 +1143,10 @@ su - "$USER_NAME" -c '
         echo "[!] Yay clone failed — install manually: git clone https://aur.archlinux.org/yay.git"
     fi
 ' && log "Yay: ✓" || warn "Yay installation failed — install manually after reboot"
+
+# Remove temporary sudo privilege immediately
+rm -f "/etc/sudoers.d/${USER_NAME}-temp"
+log "Temporary sudo privilege removed"
 
 section "Chroot Complete"
 log "All configuration steps completed successfully."
@@ -1172,6 +1182,8 @@ declare -a PACKAGES=(
     "networkmanager" "network-manager-applet"
     # Essential tools
     "git" "wget" "curl" "htop" "tree" "unzip"
+    # Backlight & volume control (FN keys on laptops)
+    "brightnessctl" "pamixer"
     # Xorg display server
     "xorg-server" "xorg-xauth" "xorg-xinit" "xorg-xrandr" "xorg-xinput"
     # Desktop environment
@@ -1198,7 +1210,8 @@ declare -a PACKAGES=(
     "man-db" "man-pages"
 )
 # Append GPU-specific packages
-for pkg in $GPU_PKGS; do PACKAGES+=("$pkg"); done
+read -ra _GPU_PKGS <<< "$GPU_PKGS"
+for pkg in "${_GPU_PKGS[@]}"; do PACKAGES+=("$pkg"); done
 
 log "Total packages to install: ${#PACKAGES[@]}"
 echo ""
@@ -1212,9 +1225,6 @@ else
         "Package installation failed!\n\nCommon causes:\n  • Network connectivity issues\n  • Mirror server problems\n  • Disk space issues\n\nFull log: $LOG_FILE"
     exit 1
 fi
-
-# Enable parallel downloads on installed system
-sed -i "s/^#ParallelDownloads/ParallelDownloads/" /mnt/etc/pacman.conf 2>/dev/null || true
 
 # Copy optimized mirrorlist to installed system
 cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist 2>/dev/null || true
@@ -1263,7 +1273,7 @@ Examples:
   • Browsers   : firefox chromium
   • Editors    : neovim code
   • Media      : mpv vlc
-  • Tools      : htop btop neofetch
+  • Tools      : btop neofetch fastfetch
   • Fonts      : noto-fonts-emoji
 
 You can also install packages after reboot using pacman or yay."; then

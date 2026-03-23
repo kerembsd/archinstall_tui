@@ -383,22 +383,25 @@ preflight_check
 section "Disk Selection"
 
 DISK_LIST=()
-# Use pipe separator to safely handle MODEL fields that contain spaces
-# and TRAN fields that may be empty on some virtual/unusual devices
-while IFS='|' read -r devname size tran model; do
-    [[ -z "$devname" || -z "$size" ]] && continue
-    tran="${tran// /}"   # strip whitespace from transport field
-    model="${model:-Unknown}"
-    case "$tran" in
+# Query each field separately — avoids --output-separator compatibility issues
+# and handles empty TRAN fields (VirtIO, some NVMe adapters) safely.
+while IFS= read -r devname; do
+    [[ -z "$devname" ]] && continue
+    size=$(lsblk -dno SIZE  "/dev/$devname" 2>/dev/null | xargs)
+    tran=$(lsblk -dno TRAN  "/dev/$devname" 2>/dev/null | xargs)
+    model=$(lsblk -dno MODEL "/dev/$devname" 2>/dev/null | xargs)
+    [[ -z "$size" ]] && continue
+    [[ -z "$model" ]] && model="Unknown"
+    case "${tran:-}" in
         nvme) type_label="NVMe"           ;;
         sata) type_label="SATA"           ;;
         usb)  type_label="USB — CAUTION!" ;;
         mmc)  type_label="eMMC"           ;;
-        "")   type_label="Disk"           ;;   # empty TRAN (VM/unusual device)
+        "")   type_label="Disk"           ;;
         *)    type_label="$tran"          ;;
     esac
     DISK_LIST+=("$devname" "[${type_label}] ${size} — ${model}")
-done < <(lsblk -dn -e 7,11 -o NAME,SIZE,TRAN,MODEL --output-separator='|' 2>/dev/null)
+done < <(lsblk -dn -e 7,11 -o NAME 2>/dev/null)
 
 [[ ${#DISK_LIST[@]} -eq 0 ]] && {
     ui_error "No Disk Found" "No installable disk detected!\n\nMake sure your disk is connected and recognized by the system."

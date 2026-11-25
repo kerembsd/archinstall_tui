@@ -1,26 +1,18 @@
-# OS metadata
+# OS
 .DS_Store
 ._*
-.Spotlight-V100
-.Trashes
 Thumbs.db
-Desktop.ini
 
-# Editor swap, backup, and project files
+# Editor
 *.swp
 *.swo
 *~
 *.bak
-*.orig
-*.rej
-.#*
-\#*#
 .vscode/
 .idea/
 
-# Logs and temporary files
+# Logs & temp
 *.log
 *.tmp
-*.temp
 archinstall-*.log
 chroot_vars.sh
